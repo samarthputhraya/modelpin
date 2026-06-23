@@ -27,8 +27,8 @@ except Exception:  # noqa: BLE001 - best effort; no-op where not needed
 from modelpin.diff import diff_scenario
 from modelpin.judge import build_judge
 from modelpin.models import DiffVerdict, Scenario
+from modelpin.providers import get_adapter
 from modelpin.providers.base import ProviderError
-from modelpin.providers.openai import OpenAIAdapter
 from modelpin.replay import replay
 from modelpin.scenarios import load_scenarios
 
@@ -70,51 +70,66 @@ def _perturb(scenario: Scenario, instruction: str) -> Scenario:
 
 def main() -> None:
     ap = argparse.ArgumentParser()
+    ap.add_argument("--provider", default="openai", help="openai | google")
     ap.add_argument("--model", default="gpt-4o-mini")
     ap.add_argument("--runs", type=int, default=5)
     ap.add_argument("--judge", default="gpt-4o-mini")
+    ap.add_argument("--no-judge", action="store_true", help="skip the semantic LLM-judge")
     ap.add_argument("--scenarios-dir", default="examples/suite")
     args = ap.parse_args()
 
     scenarios = load_scenarios(args.scenarios_dir)
-    adapter = OpenAIAdapter()
+    adapter = get_adapter(args.provider)
     adapter.preflight()
-    judge = build_judge(args.judge)
-    judge.preflight()
+    judge = None if args.no_judge else build_judge(args.judge)
+    if judge is not None:
+        judge.preflight()
     print(
-        f"FP measurement: model={args.model} runs={args.runs} judge={args.judge} "
-        f"scenarios={len(scenarios)}\n"
+        f"FP measurement: provider={args.provider} model={args.model} runs={args.runs} "
+        f"judge={'off' if judge is None else args.judge} scenarios={len(scenarios)}\n"
     )
 
+    def _verdict(base_scn, cand_scn, sid):
+        """Replay base + candidate and diff; returns the DiffResult or None on error."""
+        try:
+            base = _replay_resilient(base_scn, args.model, adapter, args.runs)
+            cand = _replay_resilient(cand_scn, args.model, adapter, args.runs)
+            return diff_scenario(sid, args.model, args.model, base, cand, base_scn, judge=judge)
+        except ProviderError as exc:
+            print(f"  {sid:<22} ERROR  ({str(exc)[:70]})")
+            return None
+
     # --- false-positive rate: same model vs itself ---------------------------------
-    false_positives = 0
+    false_positives = scored = 0
     print("EQUIVALENT PAIRS (same model vs itself) -- any non-`unchanged` is a false alarm")
     for s in scenarios:
-        base = _replay_resilient(s, args.model, adapter, args.runs)
-        cand = _replay_resilient(s, args.model, adapter, args.runs)
-        r = diff_scenario(s.id, args.model, args.model, base, cand, s, judge=judge)
+        r = _verdict(s, s, s.id)
+        if r is None:
+            continue
+        scored += 1
         is_fp = r.verdict != DiffVerdict.unchanged
         false_positives += int(is_fp)
         flag = "  <-- FALSE POSITIVE" if is_fp else ""
         print(f"  {s.id:<22} {r.verdict.value:<14} conf={r.confidence:.2f}{flag}")
-    fp_rate = false_positives / len(scenarios) if scenarios else 0.0
-    print(f"\n  False-positive rate: {false_positives}/{len(scenarios)} = {fp_rate:.0%}\n")
+    rate = f"{false_positives/scored:.0%}" if scored else "n/a"
+    print(f"\n  False-positive rate: {false_positives}/{scored} = {rate}\n")
 
     # --- detection: injected regressions -------------------------------------------
-    detected = 0
+    detected = checked = 0
     perturbed = [s for s in scenarios if s.id in PERTURBATIONS]
     print("INJECTED REGRESSIONS (perturbed candidate) -- expect regression/changed_minor")
     for s in perturbed:
-        base = _replay_resilient(s, args.model, adapter, args.runs)
-        cand = _replay_resilient(_perturb(s, PERTURBATIONS[s.id]), args.model, adapter, args.runs)
-        r = diff_scenario(s.id, args.model, args.model, base, cand, s, judge=judge)
+        r = _verdict(s, _perturb(s, PERTURBATIONS[s.id]), s.id)
+        if r is None:
+            continue
+        checked += 1
         caught = r.verdict != DiffVerdict.unchanged
         detected += int(caught)
         print(
             f"  {s.id:<22} {r.verdict.value:<14} conf={r.confidence:.2f}  "
-            f"{'detected' if caught else 'MISSED'}  ({r.explanation[:60]})"
+            f"{'detected' if caught else 'MISSED'}  ({r.explanation[:55]})"
         )
-    print(f"\n  Detection: {detected}/{len(perturbed)} injected regressions caught")
+    print(f"\n  Detection: {detected}/{checked} injected regressions caught")
 
 
 if __name__ == "__main__":
