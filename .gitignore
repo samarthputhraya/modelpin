@@ -13,6 +13,9 @@ venv/
 .DS_Store
 *.log
 
+# Local Modelpin state (recorded baselines + last rendered report)
+.modelpin/
+
 # Windows reserved device name accidentally materialized by `>nul` redirects
 # under Git Bash (it's a real file there, not the null device). Never track it.
 nul
