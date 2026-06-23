@@ -1,0 +1,70 @@
+# Modelpin — Phase 0 status & next steps
+
+> Durable handoff so any session can resume from the repo (not from chat memory).
+> Read this with `CLAUDE.md` and `docs/Modelpin-Engineering-Context-Pack.md` (the spec).
+
+## Where we are (branch `main`, pushed to GitHub, private)
+
+- **`33d10d0`** — Phase-0 skeleton + **statistically-hardened behavioral diff** (the moat):
+  exact two-sample permutation test (`diff/stats.py`, no SciPy, deterministic);
+  verdict gated on `p ≤ 0.05` **and** an effect-size floor (`diff/__init__.py`);
+  `strict/unordered/subset/superset` match modes; calibrated confidence.
+  Cleanups: Python 3.12, full Apache-2.0 LICENSE, current Anthropic model ids.
+- **`f24bd90`** — **CLI wired end-to-end** (`scan/init/baseline/check`), **spec §7 reporter**,
+  offline fake-provider demo (`examples/traces/demo_traces.json`), `storage.py`
+  baseline persistence, fix for a Windows `UnicodeEncodeError` crash.
+- A 13-agent adversarial audit of the diff engine found + fixed **1 CRITICAL**
+  (sampling fallback returned `p=0.0`); two proposed "fixes" were verified wrong and rejected.
+- **31 tests passing; ruff + black clean.**
+
+Run the offline demo:
+```
+mp baseline --provider fake --fixtures examples/traces/demo_traces.json \
+  --model claude-opus-4-6 --scenarios-dir examples/scenarios --config examples/modelpin.yaml
+mp check --to claude-opus-4-7 --from claude-opus-4-6 --provider fake \
+  --fixtures examples/traces/demo_traces.json --scenarios-dir examples/scenarios --config examples/modelpin.yaml
+```
+
+## Milestone (Phase 0 Definition of Done — spec §11)
+
+`mp check` detects a genuine regression **between two REAL models** and prints the
+PR-style report, **with a measured low false-positive rate on a held-out set**.
+
+## The one gap that blocks the milestone
+
+`modelpin/providers/openai.py` and `anthropic.py` are still `NotImplementedError` stubs.
+Until they exist we cannot replay on real models, cannot record real traces, and
+therefore cannot calibrate the diff thresholds or measure the real false-positive rate.
+
+## Next steps (priority order)
+
+1. **Provider adapters (Anthropic first, then OpenAI)** — the milestone blocker.
+   Read the END USER's key from env (`ANTHROPIC_API_KEY` / `OPENAI_API_KEY`); never
+   hardcode/ship/log a key. Capture `messages`, `tool_calls` (name+args),
+   `final_output`, `refused`, `tokens{in,out}`, `latency_ms` into a `Trace`.
+   Keep the SDK import inside `run()`. **Verify SDK shapes against the `claude-api`
+   skill / official docs — do not write them from memory.** Modern Claude models
+   (Opus 4.6+/Sonnet 4.6) reject `temperature`/`top_p`/`budget_tokens` and use
+   adaptive thinking. Tests stay on `FakeProvider` — NO live paid calls in CI.
+2. **Record a real baseline + candidate** on the example agent across two real models;
+   measure the FP rate on a held-out set (closes the DoD).
+3. **Calibrate the diff thresholds** (`MIN_TOOL_TVD`, `MIN_REFUSAL_DELTA`, `ALPHA`) on
+   those real traces — replaces today's defensible-but-uncalibrated defaults.
+4. **Diff deepening (offline-doable now):** cost (token) regression as `changed_minor`
+   (gate via the permutation test; latency is jittery — handle carefully); an
+   "inconclusive / underpowered → re-run" surface (spec §6C); wire `subset/superset`
+   + `expected_tool_calls`/`output_schema` assertions into the verdict.
+5. **GitHub Action** polish (`actions/action.yml`) for CI usage.
+6. **Smaller audit items:** 6–8 example scenarios; scenario-JSON error handling;
+   detector registry-validation (cut regex false positives); remove/clarify the now-stale
+   `regression_threshold` config field; add the missing per-module tests already covered
+   for watcher/config/report/cli.
+
+## Design guardrails (do NOT undo — see also `~/.claude` project memory)
+
+- Diff confidence for an `unchanged` verdict = `min(p)` is **intentional** (identical
+  traces → 1.0; near-α miss → low). Do **not** invert it to `1 − p`.
+- The conservative effect-size floors are deliberate for the **false-positive north-star**;
+  tune them only with real-trace calibration data, never by guessing.
+- BYO-key everywhere; no live paid API calls in tests.
+- Public reports are framed as measurement/opinion, never "Model X is worse." Apache-2.0 core.
