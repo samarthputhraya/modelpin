@@ -192,3 +192,80 @@ def test_large_n_sampling_does_not_false_positive_on_equivalent():
     base = [a] * 6 + [b] * 4
     cand = [a] * 4 + [b] * 6  # same two behaviors, modest mix shift; 20 total -> sampling
     assert permutation_pvalue_distribution(base, cand) > 0.05
+
+
+# --------------------------------------------------------------------------- #
+# Semantic LLM-judge signal (spec 6B): optional, injected, and FP-safe. The judge
+# is a fake here so these stay offline/deterministic — no network, no key.
+# --------------------------------------------------------------------------- #
+
+
+class _FakeJudge:
+    """Equivalence oracle driven by a rule(reference, candidate) -> bool."""
+
+    def __init__(self, rule):
+        self.rule = rule
+
+    def equivalent(self, reference, candidate, task=None):
+        return self.rule(reference, candidate)
+
+
+def out_runs(outputs):
+    """Traces with no tool calls and the given per-run outputs."""
+    return [trace(output=o, run=i) for i, o in enumerate(outputs)]
+
+
+def test_no_judge_leaves_semantic_signal_unevaluated():
+    base = out_runs(["ok"] * RUNS)
+    cand = out_runs(["totally different"] * RUNS)
+    r = diff_scenario("s", "old", "new", base, cand)  # judge=None
+    assert r.signals.semantic_score is None
+    assert r.verdict == DiffVerdict.unchanged  # structural-only sees identical (empty) tools
+
+
+def test_consistent_semantic_drift_is_changed_minor():
+    judge = _FakeJudge(lambda r, c: False)  # candidate consistently means something else
+    base = out_runs(["Your refund was approved."] * RUNS)
+    cand = out_runs(["I cannot process that.", "Denied.", "No refund.", "Rejected.", "Nope."])
+    r = diff_scenario("s", "old", "new", base, cand, judge=judge)
+    assert r.verdict == DiffVerdict.changed_minor
+    assert r.signals.semantic_score == 0.0
+    assert "semantic" in r.explanation.lower()
+
+
+def test_reworded_but_equivalent_output_is_not_flagged():
+    """The north-star case the live smoke run exposed: same meaning, different words
+    must NOT raise an alarm just because the text differs."""
+    judge = _FakeJudge(lambda r, c: True)  # different wording, same meaning
+    base = out_runs(["The total is $5."] * RUNS)
+    cand = out_runs(
+        ["Total: 5 dollars.", "It's five dollars.", "$5.", "Five dollars total.", "5 USD."]
+    )
+    r = diff_scenario("s", "old", "new", base, cand, judge=judge)
+    assert r.verdict == DiffVerdict.unchanged
+    assert r.signals.semantic_score == 1.0
+
+
+def test_single_semantic_blip_is_not_flagged():
+    """One divergent run in five is noise, not a regression — same FP guard as the
+    structural signals, applied to the judge."""
+    judge = _FakeJudge(lambda r, c: False)
+    base = out_runs(["Approved."] * RUNS)
+    cand = out_runs(["Approved.", "Approved.", "Approved.", "Approved.", "Denied."])
+    r = diff_scenario("s", "old", "new", base, cand, judge=judge)
+    assert r.verdict == DiffVerdict.unchanged
+
+
+def test_minority_judge_divergence_below_floor_is_not_flagged():
+    """A noisy judge that disagrees on a MINORITY of candidate runs (here 2/5, below the
+    MIN_SEMANTIC_DELTA floor) must not raise an alarm — realistic judge noise on an
+    otherwise-equivalent migration stays 'unchanged'. Guards the effect-size floor, not
+    just the p-gate."""
+    judge = _FakeJudge(lambda r, c: False)  # flags any run whose text differs
+    base = out_runs(["Approved."] * RUNS)
+    # 3/5 candidate runs match the baseline text (skip judge), 2/5 differ (flagged) ->
+    # divergence rate 0.4 < 0.5 floor.
+    cand = out_runs(["Approved.", "Approved.", "Approved.", "Sure thing.", "Done deal."])
+    r = diff_scenario("s", "old", "new", base, cand, judge=judge)
+    assert r.signals.semantic_score == 0.6
+    assert r.verdict == DiffVerdict.unchanged
