@@ -8,10 +8,10 @@ RULES:
 
 from __future__ import annotations
 
-from modelpin.providers.base import ProviderAdapter
+from modelpin.providers.base import ProviderAdapter, ProviderError
 from modelpin.providers.fake import FakeProvider
 
-__all__ = ["ProviderAdapter", "FakeProvider", "get_adapter"]
+__all__ = ["ProviderAdapter", "ProviderError", "FakeProvider", "get_adapter"]
 
 
 def get_adapter(provider: str) -> ProviderAdapter:

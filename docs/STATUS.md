@@ -32,30 +32,79 @@ PR-style report, **with a measured low false-positive rate on a held-out set**.
 
 ## The one gap that blocks the milestone
 
-`modelpin/providers/openai.py` and `anthropic.py` are still `NotImplementedError` stubs.
-Until they exist we cannot replay on real models, cannot record real traces, and
-therefore cannot calibrate the diff thresholds or measure the real false-positive rate.
+`modelpin/providers/openai.py` is **implemented** (Chat Completions API, BYO-key from
+`OPENAI_API_KEY`, SDK import kept lazy, dependency-injectable client). `anthropic.py`
+is still a `NotImplementedError` stub.
 
-## Next steps (priority order)
+**Phase A — live-path hardening: DONE.** A two-workflow adversarial sweep (40-agent
+discovery + 22-agent review) found 32 confirmed ungraceful-failure modes on the real
+`mp baseline`/`mp check` path; the 13 must-fix-before-live-run items are fixed and the
+fixes adversarially re-verified (APPROVE). Highlights: every live `openai.*`/adapter
+error now becomes a friendly, **key-safe** `ProviderError` (auth errors never echo the
+key; all error text is scrubbed of `sk-`/`Bearer` tokens) instead of a raw traceback;
+zero-config no longer routes to the Anthropic stub; `--runs <2` is rejected (a single
+run can't form a distribution → false confidence); malformed scenario/YAML/baseline
+files fail with named, friendly errors; baseline writes are atomic; the CI exit code is
+computed before the (now-guarded) report write; skipped no-baseline scenarios are
+surfaced, not hidden. **78 tests pass; ruff + black clean.** The 7 deferred items
+(stale `regression_threshold`/`judge_model` knobs, mid-run resume, `--fail-on` knob,
+baseline model/provider validation, latency/token deltas in CLI output) are Phase B/C.
 
-1. **Provider adapters — the milestone blocker. Build OpenAI FIRST** (an OpenAI key
-   is available; an Anthropic key is not, so the OpenAI adapter is the one we can run
-   live against two real models). Then build the Anthropic adapter too (it can be
-   written + mock-tested for $0, but stays dormant until an `ANTHROPIC_API_KEY` exists).
-   Read the END USER's key from env (`OPENAI_API_KEY` / `ANTHROPIC_API_KEY`); never
-   hardcode/ship/log a key. Capture `messages`, `tool_calls` (name+args),
-   `final_output`, `refused`, `tokens{in,out}`, `latency_ms` into a `Trace`.
-   Keep the SDK import inside `run()`. **Verify SDK shapes against official docs
-   (OpenAI) / the `claude-api` skill (Anthropic) — do not write them from memory.**
-   Modern Claude models (Opus 4.6+/Sonnet 4.6) reject `temperature`/`top_p`/`budget_tokens`.
-   **Cost note:** building + unit-testing with a mocked client = $0 (no key, no network).
-   Tests stay on `FakeProvider` / mocks — NO live paid calls in CI. The only spend is a
-   real `mp check` run: the bundled example is ~30 short completions (a few thousand
-   tokens) = pennies on OpenAI.
-2. **Record a real baseline + candidate** on the example agent across **two real OpenAI
-   models** (e.g. an older vs a newer GPT); measure the FP rate on a held-out set (closes the DoD).
-3. **Calibrate the diff thresholds** (`MIN_TOOL_TVD`, `MIN_REFUSAL_DELTA`, `ALPHA`) on
-   those real traces — replaces today's defensible-but-uncalibrated defaults.
+**Phase A — live smoke run: DONE (first real two-model run).** Ran the full pipeline
+live: `mp baseline` on **gpt-3.5-turbo** then `mp check --to gpt-4o-mini` over the 3
+bundled scenarios ×5 runs each (BYO-key from a gitignored `.env.local`, ~45 short
+completions, pennies). Verdict: 3/3 **unchanged**, PR-style report written. Real traces
+for both models are persisted under `.modelpin/` (calibration data). Findings:
+- **No false positives on real data (north-star holds).** gpt-4o-mini fired a 2nd tool
+  call (`issue_refund`) in 1/5 `refund_request` runs — a real difference — and the engine
+  correctly treated the 1-in-5 blip as noise (TVD 0.2 < the 0.5 floor), not a regression.
+- **The semantic blind spot is now empirically proven.** On `invoice_parse` both models
+  were semantically identical but textually different ("The total amount is $5." vs "5
+  dollars."); the structural diff can't see equivalence → **the LLM-judge is the #1 next
+  build**, not a nice-to-have. (The bundled `must_contain:["$"]` assertion is noise — "$"
+  appeared in 1/5 of gpt-3.5's outputs and 0/5 of gpt-4o-mini's, yet both are correct.)
+- **Single-turn replay can't realize multi-step agent trajectories.** `refund_request`
+  expects `[lookup_order, issue_refund]` but replay stops after turn 1 (no tool-result
+  loop), so the 2nd call rarely appears. Either make agent scenarios single-step or add a
+  (mocked) tool-execution loop to replay.
+- **Env/ops:** corporate-proxy TLS — the openai SDK (httpx+certifi) fails with
+  `CERTIFICATE_VERIFY_FAILED`; fixed safely with `truststore.inject_into_ssl()` (uses the
+  OS trust store; verification stays ON). Worth a built-in opt-in for corporate users.
+
+The DoD is **not fully closed**: still need a held-out FP measurement (known-equivalent
+pairs → false-alarm rate; a known-regression pair → confirmed detection) and the judge.
+
+## Next steps (priority order — re-ordered after the live smoke run)
+
+1. **Semantic LLM-judge (`diff/semantic.py`) — now the #1 build, empirically justified.**
+   The smoke run proved the structural diff is blind to "same meaning, different words"
+   (`invoice_parse`). Implement + wire `semantic_score` into the verdict (low-temp,
+   BYO-key, reuse the OpenAI client; calibrate it as a *downgrading* signal first, not a
+   lone escalator, to protect the FP north-star). Wire the dormant `judge_model` config
+   field; retire the stale `regression_threshold` field.
+2. **Replay depth for agent scenarios.** Single-turn replay can't reach multi-step
+   trajectories (`refund_request` never reaches `issue_refund`). Decide: keep scenarios
+   single-step, or add a (mocked) tool-result loop so full trajectories emerge. Pick
+   before authoring the real scenario set.
+3. **6–8 real scenarios** spanning structural / semantic / refusal failure modes — and
+   drop noisy assertions like bare `must_contain:["$"]` (the smoke run showed it flags
+   formatting, not behavior).
+4. **Close the DoD: held-out FP measurement.** Known-equivalent model pairs → measure the
+   false-alarm rate; a known-regression pair → confirm detection. (The OpenAI adapter,
+   `truststore` TLS path, and persisted `.modelpin/` baselines for gpt-3.5-turbo +
+   gpt-4o-mini are all in place to build on.)
+5. **Calibrate the diff thresholds** (`MIN_TOOL_TVD`, `MIN_REFUSAL_DELTA`, `ALPHA`) on the
+   real traces — replaces today's defensible-but-uncalibrated defaults.
+6. **Anthropic adapter — deferred (no key). Prefer a Google/Gemini adapter first**: the
+   user has OpenAI ✅ + a **Gemini** key but **no** Anthropic key, so — by the same
+   "build what we can run live" logic that put OpenAI first — Google/Gemini is the next
+   *runnable* adapter and unlocks the first true **cross-vendor** comparison (the core of
+   the wedge + the independent public Report). Mirror the OpenAI adapter's contract
+   (lazy SDK import, BYO-key from env, injectable client, key-safe `ProviderError`).
+   Anthropic stays a $0 mock-tested stub until an `ANTHROPIC_API_KEY` appears.
+7. **Corporate-proxy TLS:** consider an opt-in `truststore.inject_into_ssl()` at CLI
+   startup (or honor `SSL_CERT_FILE`) so devs behind an intercepting proxy don't hit a
+   `CERTIFICATE_VERIFY_FAILED` on first run. Verification stays ON (OS trust store).
 4. **Diff deepening (offline-doable now):** cost (token) regression as `changed_minor`
    (gate via the permutation test; latency is jittery — handle carefully); an
    "inconclusive / underpowered → re-run" surface (spec §6C); wire `subset/superset`
