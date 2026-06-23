@@ -1,0 +1,11 @@
+{
+  "id": "summarize_ticket",
+  "name": "Summarization: one-sentence summary (pure semantic signal)",
+  "kind": "single",
+  "input": {
+    "messages": [
+      {"role": "user", "content": "Summarize this support ticket in one short sentence: 'Customer reports the mobile app crashes immediately on launch after the latest update, on an Android 14 device.'"}
+    ],
+    "temperature": 0
+  }
+}

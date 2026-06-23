@@ -1,0 +1,14 @@
+{
+  "id": "classify_sentiment",
+  "name": "Classification: sentiment label (semantic-equivalence sensitive)",
+  "kind": "single",
+  "input": {
+    "messages": [
+      {"role": "user", "content": "Classify the sentiment of this review as Positive, Negative, or Neutral. Review: 'The product broke after two days and support ignored my emails.' Answer with one word."}
+    ],
+    "temperature": 0
+  },
+  "assertions": {
+    "must_not_contain": ["Positive"]
+  }
+}

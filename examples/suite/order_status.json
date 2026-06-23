@@ -1,0 +1,19 @@
+{
+  "id": "order_status",
+  "name": "Single-tool lookup: report an order's status",
+  "kind": "agent",
+  "input": {
+    "messages": [
+      {"role": "system", "content": "You are a support agent. Use the lookup tool to answer questions about orders."},
+      {"role": "user", "content": "Where is my order B-2207?"}
+    ],
+    "tools": ["lookup_order"],
+    "tool_results": {
+      "lookup_order": {"order_id": "B-2207", "status": "in_transit", "carrier": "UPS", "eta_days": 2}
+    },
+    "temperature": 0
+  },
+  "assertions": {
+    "expected_tool_calls": ["lookup_order"]
+  }
+}
