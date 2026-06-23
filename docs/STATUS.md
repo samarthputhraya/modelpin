@@ -76,12 +76,19 @@ pairs → false-alarm rate; a known-regression pair → confirmed detection) and
 
 ## Next steps (priority order — re-ordered after the live smoke run)
 
-1. **Semantic LLM-judge (`diff/semantic.py`) — now the #1 build, empirically justified.**
-   The smoke run proved the structural diff is blind to "same meaning, different words"
-   (`invoice_parse`). Implement + wire `semantic_score` into the verdict (low-temp,
-   BYO-key, reuse the OpenAI client; calibrate it as a *downgrading* signal first, not a
-   lone escalator, to protect the FP north-star). Wire the dormant `judge_model` config
-   field; retire the stale `regression_threshold` field.
+1. **Semantic LLM-judge — ✅ DONE (built + adversarially reviewed: APPROVE_WITH_NITS).**
+   `diff/semantic.py` (Judge protocol + per-run divergence flags vs the modal baseline;
+   identical text skips the judge), `judge.py` (`OpenAIJudge`, temp-0, BYO-key, key-safe
+   `ProviderError`, FP-safe parse default), wired into the verdict in `diff/__init__.py`
+   through the *same* permutation test + an effect-size floor (`MIN_SEMANTIC_DELTA=0.5`).
+   It is **optional/injected**: `diff_scenario(judge=None)` stays purely structural and
+   offline (CI is $0); the CLI builds a judge only when `judge_model` is set and the
+   provider isn't `fake`. An uncalibrated judge escalates only to `changed_minor`, never
+   a CI-failing `regression`. `judge_model` is wired in config + sample/example YAML.
+   **Before promoting semantic → `regression`:** calibrate the judge on a labeled set
+   (a systematically-miscalibrated judge can otherwise emit `changed_minor` false alarms
+   at high error rates — bounded, but trust-eroding). Still TODO: retire the stale
+   `regression_threshold` config field (deferred item 14).
 2. **Replay depth for agent scenarios.** Single-turn replay can't reach multi-step
    trajectories (`refund_request` never reaches `issue_refund`). Decide: keep scenarios
    single-step, or add a (mocked) tool-result loop so full trajectories emerge. Pick

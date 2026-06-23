@@ -21,6 +21,7 @@ from modelpin.diff.stats import (
     permutation_pvalue_mean,
     total_variation_distance,
 )
+from modelpin.diff.semantic import Judge, semantic_divergence_flags
 from modelpin.diff.structural import (
     MatchMode,
     assertion_violation_flags,
@@ -39,6 +40,20 @@ ALPHA = 0.05
 MIN_TOOL_TVD = 0.5
 #: Ignore refusal-rate rises smaller than this even if "significant" (one run in three).
 MIN_REFUSAL_DELTA = 0.34
+#: Candidate semantic-divergence rate must exceed the baseline's by at least this much.
+#: Conservative + uncalibrated (like the floors above) — protects the FP north-star until
+#: the judge is calibrated on a labeled set.
+MIN_SEMANTIC_DELTA = 0.5
+
+
+def _scenario_task(scenario: Optional[Scenario]) -> Optional[str]:
+    """The user's request from a scenario (last user message) — context for the judge."""
+    if not scenario:
+        return None
+    for message in reversed(scenario.input.get("messages") or []):
+        if isinstance(message, dict) and message.get("role") == "user":
+            return str(message.get("content") or "")
+    return None
 
 
 def _mean(values: list[float]) -> float:
@@ -53,8 +68,13 @@ def diff_scenario(
     candidate_traces: list[Trace],
     scenario: Optional[Scenario] = None,
     mode: MatchMode = "strict",
+    judge: Optional[Judge] = None,
 ) -> DiffResult:
-    """Compare baseline vs candidate trace distributions for one scenario."""
+    """Compare baseline vs candidate trace distributions for one scenario.
+
+    With ``judge`` set, the semantic LLM-judge signal is evaluated (spec 6B); with it
+    ``None`` the diff is purely structural + statistical and makes no network call.
+    """
     if not baseline_traces or not candidate_traces:
         return DiffResult(
             scenario_id=scenario_id,
@@ -90,6 +110,18 @@ def diff_scenario(
         fmt_p = permutation_pvalue_mean(base_v, cand_v)
         fmt_drift = fmt_p <= ALPHA and fmt_delta > 0
 
+    # --- semantic equivalence (LLM-as-judge; optional, only when a judge is given) ---
+    semantic_score: Optional[float] = None
+    semantic_p = 1.0
+    semantic_diverged = False
+    if judge is not None:
+        base_sem, cand_sem, semantic_score = semantic_divergence_flags(
+            baseline_traces, candidate_traces, judge, _scenario_task(scenario)
+        )
+        semantic_delta = _mean(cand_sem) - _mean(base_sem)
+        semantic_p = permutation_pvalue_mean(base_sem, cand_sem)
+        semantic_diverged = semantic_p <= ALPHA and semantic_delta >= MIN_SEMANTIC_DELTA
+
     # --- cheap deltas (informational; not part of the verdict) -----------------
     latency_delta = _mean([t.latency_ms for t in candidate_traces]) - _mean(
         [t.latency_ms for t in baseline_traces]
@@ -103,6 +135,7 @@ def diff_scenario(
         tool_call_match=round(1.0 - tool_tvd, 3),  # 1.0 == identical distributions
         format_valid=not fmt_drift,
         refusal_delta=round(refusal_delta, 3),
+        semantic_score=semantic_score,
         latency_delta_ms=round(latency_delta, 3),
         token_delta=int(token_delta),
     )
@@ -125,10 +158,22 @@ def diff_scenario(
         reasons.append(
             f"refusal rate {refusal_rate(baseline_traces):.0%} -> {refusal_rate(candidate_traces):.0%}"
         )
+    minor_pvalues: list[float] = []
     if fmt_drift:
         if verdict != DiffVerdict.regression:
             verdict = DiffVerdict.changed_minor
+        minor_pvalues.append(fmt_p)
         reasons.append("output format drift: violates the scenario's text assertions")
+    if semantic_diverged:
+        # An uncalibrated judge escalates only to changed_minor (surfaced, not CI-failing).
+        # Promote to a hard regression once the judge is calibrated on a labeled set.
+        if verdict != DiffVerdict.regression:
+            verdict = DiffVerdict.changed_minor
+        minor_pvalues.append(semantic_p)
+        reasons.append(
+            f"semantic drift: candidate answers diverge in meaning from baseline "
+            f"(equivalence {semantic_score:.0%})"
+        )
 
     # confidence = how sure we are of the verdict.
     #   regression/minor -> 1 - p of the firing signal (small p => high confidence);
@@ -137,9 +182,9 @@ def diff_scenario(
     if verdict == DiffVerdict.regression:
         confidence = round(1.0 - min(hard_pvalues), 3)
     elif verdict == DiffVerdict.changed_minor:
-        confidence = round(1.0 - fmt_p, 3)
+        confidence = round(1.0 - min(minor_pvalues), 3)
     else:
-        confidence = round(min(tool_p, refusal_p, fmt_p), 3)
+        confidence = round(min(tool_p, refusal_p, fmt_p, semantic_p), 3)
 
     explanation = "; ".join(reasons) if reasons else "no statistically significant behavior change"
 

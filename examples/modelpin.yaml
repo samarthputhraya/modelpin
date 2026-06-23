@@ -1,9 +1,8 @@
 # Example modelpin.yaml (mp init would generate this in your repo).
 models:
-  - claude-opus-4-6
+  - gpt-3.5-turbo
 scenarios_dir: scenarios
 providers:
-  - anthropic
+  - openai
 runs: 5
-judge_model: claude-opus-4-6   # used by the (TODO) semantic diff
-regression_threshold: 0.2
+judge_model: gpt-4o-mini   # semantic LLM-judge (optional; enables meaning-equivalence checks)

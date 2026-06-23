@@ -183,6 +183,27 @@ def _detect_refusal(message: Any, finish_reason: str | None, text: str) -> bool:
     return any(marker in lowered for marker in _REFUSAL_MARKERS)
 
 
+def build_openai_client(api_key_env: str = "OPENAI_API_KEY") -> Any:
+    """Construct a real OpenAI client: validate the BYO-key, then lazily import the SDK.
+
+    Shared by the adapter and the semantic judge so key/SDK handling lives in one place.
+    Raises ``ProviderError`` (never a raw traceback) if the key or SDK is missing.
+    """
+    api_key = (os.environ.get(api_key_env) or "").strip()
+    if not api_key:
+        raise ProviderError(
+            f"{api_key_env} is not set. Modelpin uses YOUR own API key "
+            "(cost + provider ToS) — export it and retry."
+        )
+    try:
+        from openai import OpenAI
+    except ImportError as exc:  # optional dependency
+        raise ProviderError(
+            "The OpenAI SDK is not installed. Install it with: pip install 'modelpin[providers]'"
+        ) from exc
+    return OpenAI(api_key=api_key)
+
+
 class OpenAIAdapter(ProviderAdapter):
     name = "openai"
 
@@ -196,24 +217,8 @@ class OpenAIAdapter(ProviderAdapter):
         self._get_client()
 
     def _get_client(self) -> Any:
-        if self._client is not None:
-            return self._client
-        # Validate the user's key first — it's the core BYO-key guardrail and doesn't
-        # depend on the optional SDK being installed.
-        api_key = (os.environ.get(self._api_key_env) or "").strip()
-        if not api_key:
-            raise ProviderError(
-                f"{self._api_key_env} is not set. Modelpin replays with YOUR own API key "
-                "(cost + provider ToS) — export it and retry."
-            )
-        try:
-            from openai import OpenAI
-        except ImportError as exc:  # optional dependency
-            raise ProviderError(
-                "The OpenAI SDK is not installed. Install it with: "
-                "pip install 'modelpin[providers]'"
-            ) from exc
-        self._client = OpenAI(api_key=api_key)
+        if self._client is None:
+            self._client = build_openai_client(self._api_key_env)
         return self._client
 
     def run(self, scenario: Scenario, model_id: str, run_idx: int = 0) -> Trace:

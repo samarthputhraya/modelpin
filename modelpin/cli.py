@@ -60,6 +60,7 @@ scenarios_dir: scenarios
 providers:
   - openai                 # uses YOUR OPENAI_API_KEY from the environment
 runs: 5                    # N replays per scenario (>=5 gives the diff real power)
+judge_model: gpt-4o-mini   # semantic LLM-judge (optional; extra calls). Remove to disable.
 """
 
 
@@ -102,6 +103,22 @@ def _guard_replay(provider: str, fn):
         _fail(_unimplemented_msg(provider))
     except ProviderError as exc:
         _fail(str(exc))
+
+
+def _build_judge(provider: str, cfg: ModelpinConfig):
+    """Construct + preflight the semantic LLM-judge if configured. Returns None when no
+    judge_model is set or the run is offline (fake), so the diff stays purely structural."""
+    if not cfg.judge_model or provider == "fake":
+        return None
+    try:
+        from modelpin.judge import build_judge
+
+        judge = build_judge(provider, cfg.judge_model)
+        judge.preflight()
+    except (ProviderError, ImportError) as exc:
+        _fail(f"semantic judge ({cfg.judge_model!r}): {exc}")
+    console.print(f"[dim]semantic judge: {cfg.judge_model}[/]")
+    return judge
 
 
 def _load_config_or_fail(config_path: str) -> ModelpinConfig:
@@ -251,6 +268,7 @@ def check(
     adapter = _adapter(prov, fixtures)
     console.print(f"[dim]provider={prov} from={from_model} to={to} runs={n} match={mode}[/]")
     _preflight_or_fail(adapter, prov)
+    judge = _build_judge(prov, cfg)
 
     results = []
     skipped: list[str] = []
@@ -262,7 +280,9 @@ def check(
                 skipped.append(s.id)
                 continue
             cand = replay(s, to, adapter, runs=n)
-            results.append(diff_scenario(s.id, from_model, to, base_traces, cand, s, mode))
+            results.append(
+                diff_scenario(s.id, from_model, to, base_traces, cand, s, mode, judge=judge)
+            )
 
     _guard_replay(prov, _run_check)
 
