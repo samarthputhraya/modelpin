@@ -89,38 +89,40 @@ pairs → false-alarm rate; a known-regression pair → confirmed detection) and
    (a systematically-miscalibrated judge can otherwise emit `changed_minor` false alarms
    at high error rates — bounded, but trust-eroding). Still TODO: retire the stale
    `regression_threshold` config field (deferred item 14).
-2. **Replay depth for agent scenarios.** Single-turn replay can't reach multi-step
-   trajectories (`refund_request` never reaches `issue_refund`). Decide: keep scenarios
-   single-step, or add a (mocked) tool-result loop so full trajectories emerge. Pick
-   before authoring the real scenario set.
-3. **6–8 real scenarios** spanning structural / semantic / refusal failure modes — and
-   drop noisy assertions like bare `must_contain:["$"]` (the smoke run showed it flags
-   formatting, not behavior).
-4. **Close the DoD: held-out FP measurement.** Known-equivalent model pairs → measure the
-   false-alarm rate; a known-regression pair → confirm detection. (The OpenAI adapter,
-   `truststore` TLS path, and persisted `.modelpin/` baselines for gpt-3.5-turbo +
-   gpt-4o-mini are all in place to build on.)
-5. **Calibrate the diff thresholds** (`MIN_TOOL_TVD`, `MIN_REFUSAL_DELTA`, `ALPHA`) on the
-   real traces — replaces today's defensible-but-uncalibrated defaults.
-6. **Anthropic adapter — deferred (no key). Prefer a Google/Gemini adapter first**: the
-   user has OpenAI ✅ + a **Gemini** key but **no** Anthropic key, so — by the same
-   "build what we can run live" logic that put OpenAI first — Google/Gemini is the next
-   *runnable* adapter and unlocks the first true **cross-vendor** comparison (the core of
-   the wedge + the independent public Report). Mirror the OpenAI adapter's contract
-   (lazy SDK import, BYO-key from env, injectable client, key-safe `ProviderError`).
-   Anthropic stays a $0 mock-tested stub until an `ANTHROPIC_API_KEY` appears.
-7. **Corporate-proxy TLS:** consider an opt-in `truststore.inject_into_ssl()` at CLI
-   startup (or honor `SSL_CERT_FILE`) so devs behind an intercepting proxy don't hit a
+2. **Replay depth — ✅ DONE.** `OpenAIAdapter.run()` (and the Gemini adapter) now drive a
+   model↔tool loop up to `MAX_TOOL_TURNS`, feeding back canned `scenario.input.tool_results`
+   so multi-step trajectories (`lookup_order` → `issue_refund`) actually emerge. Deterministic
+   + offline-testable.
+3. **6–8 real scenarios — ✅ DONE.** [`examples/suite/`](fp-measurement.md) has 8 scenarios
+   spanning tool trajectories / semantic / refusal / format, with canned `tool_results` and
+   no noisy assertions. `examples/scenarios/` stays as the minimal offline demo.
+4. **Held-out FP measurement — ⏳ harness done, full judged run pending connectivity.** See
+   [`docs/fp-measurement.md`](fp-measurement.md) + [`scripts/fp_measurement.py`](../scripts/fp_measurement.py).
+   Same-model-vs-itself across the held-out suite measures the FP rate; injected regressions
+   confirm detection. Evidence so far: **0 false positives** across the golden test (0/4
+   synthetic), real same-model split-half (0/6), and the real cross-model smoke run (0/3).
+   The full **judged 8-scenario N=5** run is blocked only by intermittent `api.openai.com`
+   connectivity — re-run the harness in a stable window to populate the headline number.
+5. **Calibrate the diff thresholds** (`MIN_TOOL_TVD`, `MIN_REFUSAL_DELTA`, `ALPHA`,
+   `MIN_SEMANTIC_DELTA`) on the real traces — replaces today's uncalibrated defaults; gates
+   promoting the semantic judge from `changed_minor` to `regression`.
+6. **Google/Gemini adapter — ✅ DONE (cross-vendor unlocked).** `providers/google.py` via
+   `google-genai` (SDK shapes verified live), BYO-key from `GEMINI_API_KEY`/`GOOGLE_API_KEY`,
+   same multi-turn architecture, key-safe errors, mock-tested. Cross-vendor checks use an
+   OpenAI judge (judge provider inferred from `judge_model`). **Pending:** a live Gemini
+   smoke run to confirm the multi-step function-response feedback (needs the Gemini key in
+   the env). **Anthropic** stays a $0 stub until an `ANTHROPIC_API_KEY` appears.
+7. **Corporate-proxy TLS:** the FP harness opts into `truststore.inject_into_ssl()`; still
+   worth a built-in opt-in at CLI startup so devs behind an intercepting proxy don't hit a
    `CERTIFICATE_VERIFY_FAILED` on first run. Verification stays ON (OS trust store).
-4. **Diff deepening (offline-doable now):** cost (token) regression as `changed_minor`
+8. **Diff deepening (offline-doable now):** cost (token) regression as `changed_minor`
    (gate via the permutation test; latency is jittery — handle carefully); an
    "inconclusive / underpowered → re-run" surface (spec §6C); wire `subset/superset`
    + `expected_tool_calls`/`output_schema` assertions into the verdict.
-5. **GitHub Action** polish (`actions/action.yml`) for CI usage.
-6. **Smaller audit items:** 6–8 example scenarios; scenario-JSON error handling;
-   detector registry-validation (cut regex false positives); remove/clarify the now-stale
-   `regression_threshold` config field; add the missing per-module tests already covered
-   for watcher/config/report/cli.
+9. **GitHub Action** polish (`actions/action.yml`) for CI usage.
+10. **Smaller audit items:** detector registry-validation (cut regex false positives);
+   retire the now-stale `regression_threshold` config field; add the missing per-module
+   tests for watcher/report. (Scenario-JSON error handling + config/cli tests: ✅ done.)
 
 ## Design guardrails (do NOT undo — see also `~/.claude` project memory)
 
