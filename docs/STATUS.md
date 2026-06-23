@@ -106,12 +106,20 @@ pairs → false-alarm rate; a known-regression pair → confirmed detection) and
 5. **Calibrate the diff thresholds** (`MIN_TOOL_TVD`, `MIN_REFUSAL_DELTA`, `ALPHA`,
    `MIN_SEMANTIC_DELTA`) on the real traces — replaces today's uncalibrated defaults; gates
    promoting the semantic judge from `changed_minor` to `regression`.
-6. **Google/Gemini adapter — ✅ DONE (cross-vendor unlocked).** `providers/google.py` via
-   `google-genai` (SDK shapes verified live), BYO-key from `GEMINI_API_KEY`/`GOOGLE_API_KEY`,
-   same multi-turn architecture, key-safe errors, mock-tested. Cross-vendor checks use an
-   OpenAI judge (judge provider inferred from `judge_model`). **Pending:** a live Gemini
-   smoke run to confirm the multi-step function-response feedback (needs the Gemini key in
-   the env). **Anthropic** stays a $0 stub until an `ANTHROPIC_API_KEY` appears.
+6. **Google/Gemini adapter — ✅ DONE + LIVE-VALIDATED (cross-vendor unlocked).**
+   `providers/google.py` via `google-genai` (SDK shapes verified live), BYO-key from
+   `GEMINI_API_KEY`/`GOOGLE_API_KEY`, same multi-turn architecture, key-safe errors,
+   mock-tested. **Live-validated on `gemini-2.5-flash`:** the text path (correct
+   `summarize_ticket` output + token capture) AND the multi-step tool loop —
+   `refund_request` produced the full `lookup_order → issue_refund` trajectory and the
+   final answer consumed the canned tool data, confirming the `function_response`
+   (role="user") feedback is correct. Cross-vendor checks use an OpenAI judge (provider
+   inferred from `judge_model`). **Still pending (external):** the true gpt-vs-gemini
+   cross-vendor run (needs OpenAI reachable; was down at time of writing) — when up:
+   `mp baseline --provider openai --model gpt-4o-mini` then
+   `mp check --provider google --to gemini-2.5-flash --from gpt-4o-mini`. Gemini free-tier
+   quota also limits sustained runs (gemini-2.0-flash returns 429; 2.5-flash works but is
+   intermittently 503). **Anthropic** stays a $0 stub until an `ANTHROPIC_API_KEY` appears.
 7. **Corporate-proxy TLS:** the FP harness opts into `truststore.inject_into_ssl()`; still
    worth a built-in opt-in at CLI startup so devs behind an intercepting proxy don't hit a
    `CERTIFICATE_VERIFY_FAILED` on first run. Verification stays ON (OS trust store).
