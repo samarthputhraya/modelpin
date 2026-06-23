@@ -38,16 +38,22 @@ therefore cannot calibrate the diff thresholds or measure the real false-positiv
 
 ## Next steps (priority order)
 
-1. **Provider adapters (Anthropic first, then OpenAI)** — the milestone blocker.
-   Read the END USER's key from env (`ANTHROPIC_API_KEY` / `OPENAI_API_KEY`); never
+1. **Provider adapters — the milestone blocker. Build OpenAI FIRST** (an OpenAI key
+   is available; an Anthropic key is not, so the OpenAI adapter is the one we can run
+   live against two real models). Then build the Anthropic adapter too (it can be
+   written + mock-tested for $0, but stays dormant until an `ANTHROPIC_API_KEY` exists).
+   Read the END USER's key from env (`OPENAI_API_KEY` / `ANTHROPIC_API_KEY`); never
    hardcode/ship/log a key. Capture `messages`, `tool_calls` (name+args),
    `final_output`, `refused`, `tokens{in,out}`, `latency_ms` into a `Trace`.
-   Keep the SDK import inside `run()`. **Verify SDK shapes against the `claude-api`
-   skill / official docs — do not write them from memory.** Modern Claude models
-   (Opus 4.6+/Sonnet 4.6) reject `temperature`/`top_p`/`budget_tokens` and use
-   adaptive thinking. Tests stay on `FakeProvider` — NO live paid calls in CI.
-2. **Record a real baseline + candidate** on the example agent across two real models;
-   measure the FP rate on a held-out set (closes the DoD).
+   Keep the SDK import inside `run()`. **Verify SDK shapes against official docs
+   (OpenAI) / the `claude-api` skill (Anthropic) — do not write them from memory.**
+   Modern Claude models (Opus 4.6+/Sonnet 4.6) reject `temperature`/`top_p`/`budget_tokens`.
+   **Cost note:** building + unit-testing with a mocked client = $0 (no key, no network).
+   Tests stay on `FakeProvider` / mocks — NO live paid calls in CI. The only spend is a
+   real `mp check` run: the bundled example is ~30 short completions (a few thousand
+   tokens) = pennies on OpenAI.
+2. **Record a real baseline + candidate** on the example agent across **two real OpenAI
+   models** (e.g. an older vs a newer GPT); measure the FP rate on a held-out set (closes the DoD).
 3. **Calibrate the diff thresholds** (`MIN_TOOL_TVD`, `MIN_REFUSAL_DELTA`, `ALPHA`) on
    those real traces — replaces today's defensible-but-uncalibrated defaults.
 4. **Diff deepening (offline-doable now):** cost (token) regression as `changed_minor`
