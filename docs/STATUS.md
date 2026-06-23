@@ -74,3 +74,24 @@ therefore cannot calibrate the diff thresholds or measure the real false-positiv
   tune them only with real-trace calibration data, never by guessing.
 - BYO-key everywhere; no live paid API calls in tests.
 - Public reports are framed as measurement/opinion, never "Model X is worse." Apache-2.0 core.
+
+## Completion & roadmap (estimate — part-time solo dev + AI pair; full-time ~2-3x faster)
+
+- **MVP (Phase 0): ~55-60% done.** Built: full offline pipeline + the hardened, audited
+  diff engine + CLI + §7 reporter. Remaining ~40% is the *proof-of-value*: real
+  OpenAI/Anthropic adapters, the LLM-judge, a **real two-model run with a measured low
+  false-positive rate on a held-out set** (the DoD), 6-8 real scenarios, and Report #1.
+- **Public OSS launch (early Phase 1): ~30% done.** pipx/PyPI, a real GitHub Action,
+  Watcher automation, the public report site + cadence, and hosted Pro are barely started.
+
+| Milestone | Remaining | Calendar (from now) |
+|---|---|---|
+| MVP (Phase 0 DoD) | OpenAI adapter -> Anthropic adapter -> LLM-judge -> real 2-model run + FP measurement + threshold calibration -> 6-8 scenarios | ~2-4 weeks |
+| Modelpin Report #1 | run open suite on a real model launch, write up, post | overlaps; gated by an actual model launch |
+| OSS public launch | pipx/PyPI, real GitHub Action (PR comment via API), docs/DX | ~6-8 weeks |
+| First dollars (full Phase 1) | Watcher automation, report site + cadence, hosted Pro | ~3-6 months (~$1.5k MRR) |
+| Phase 2 (GitHub App + teams) | FastAPI+Postgres, auto-PR App, dashboard, Stripe | ~6-14 months (~$10k MRR) |
+| Phase 3 (business + scale) | managed auto-fix PRs, SSO, more providers | ~14-30 months ($1M ARR) |
+
+Caveats: scales with hours/week; Report #1 is gated by a real provider model launch;
+hosted tiers are the heavy lifts. Mirrors the spec's phasing (§11).
