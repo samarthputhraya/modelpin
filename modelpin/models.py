@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 def _utcnow() -> datetime:
@@ -51,6 +51,22 @@ class Scenario(BaseModel):
     kind: Literal["single", "agent"] = "single"
     input: dict[str, Any]  # { "messages": [...], "tools": [...]? }
     assertions: Optional[Assertion] = None
+
+    @model_validator(mode="after")
+    def _check_input_shape(self) -> "Scenario":
+        """Fail fast on malformed scenarios so a bad file can't reach a paid API call.
+
+        ``messages`` must be present and a list (an empty list is allowed for the
+        offline/fake path); ``tools``, when present, must be a list.
+        """
+        messages = self.input.get("messages")
+        if not isinstance(messages, list):
+            raise ValueError(
+                f"scenario {self.id!r}: input.messages must be a list of message dicts"
+            )
+        if "tools" in self.input and not isinstance(self.input["tools"], list):
+            raise ValueError(f"scenario {self.id!r}: input.tools must be a list when present")
+        return self
 
 
 class Trace(BaseModel):
