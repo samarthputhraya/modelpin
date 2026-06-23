@@ -113,7 +113,9 @@ def _build_judge(provider: str, cfg: ModelpinConfig):
     try:
         from modelpin.judge import build_judge
 
-        judge = build_judge(provider, cfg.judge_model)
+        # The judge is independent of the models being compared (the judge model id picks
+        # its provider), so a cross-vendor check (e.g. google vs openai) can still judge.
+        judge = build_judge(cfg.judge_model)
         judge.preflight()
     except (ProviderError, ImportError) as exc:
         _fail(f"semantic judge ({cfg.judge_model!r}): {exc}")
