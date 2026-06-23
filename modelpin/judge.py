@@ -90,10 +90,13 @@ class OpenAIJudge:
         return _parse_equivalent(content)
 
 
-def build_judge(provider: str, model: str, client: Any | None = None) -> OpenAIJudge:
-    """Construct a judge for the given provider. Only OpenAI is supported so far."""
-    if provider == "openai":
+def build_judge(model: str, client: Any | None = None) -> OpenAIJudge:
+    """Construct a judge from the judge model id. The judge is independent of the models
+    being compared (so a cross-vendor check can use an OpenAI judge); only OpenAI judge
+    models are supported so far."""
+    if model.startswith(("gpt-", "o1", "o3", "o4", "chatgpt")):
         return OpenAIJudge(model, client=client)
     raise ProviderError(
-        f"no semantic judge available for provider {provider!r} yet (only 'openai')."
+        f"no semantic judge available for model {model!r} yet (use an OpenAI judge model "
+        "such as gpt-4o-mini)."
     )

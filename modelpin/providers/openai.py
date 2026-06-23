@@ -15,11 +15,11 @@ from __future__ import annotations
 
 import json
 import os
-import re
 import time
 from typing import Any
 
 from modelpin.models import Scenario, ToolCall, Trace
+from modelpin.providers._common import looks_like_refusal, scrub_secrets
 from modelpin.providers.base import ProviderAdapter, ProviderError
 
 #: Generation params we pass through from ``scenario.input`` when present. Anything
@@ -45,22 +45,6 @@ MAX_TOOL_TURNS = 6
 #: agent replays deterministic and offline without real tool execution.
 _DEFAULT_TOOL_RESULT: dict[str, Any] = {"status": "ok"}
 
-#: Conservative refusal markers. Refusal is a per-run 0/1 signal that then goes through
-#: the distributional test (diff/stats.py), so an occasional miss washes out — only a
-#: shift in the *refusal rate* between baseline and candidate is ever flagged.
-_REFUSAL_MARKERS: tuple[str, ...] = (
-    "i can't",
-    "i cannot",
-    "i can not",
-    "i'm not able",
-    "i am not able",
-    "i'm unable",
-    "i am unable",
-    "i won't",
-    "i will not",
-    "i'm sorry, but i can",
-)
-
 #: Friendly, actionable hints per OpenAI SDK error class. Keyed by class name so we
 #: don't need to import the SDK's exception types at module scope.
 _API_ERROR_HINTS: dict[str, str] = {
@@ -77,15 +61,6 @@ _API_ERROR_HINTS: dict[str, str] = {
 #: Errors whose message text may embed a redacted key fragment — don't echo it at all.
 _KEY_BEARING_ERRORS: frozenset[str] = frozenset({"AuthenticationError", "PermissionDeniedError"})
 
-#: Key-shaped tokens to redact from ANY text before it is shown or logged. OpenAI keys
-#: all start with ``sk-`` (incl. ``sk-proj-``); ``Bearer <token>`` covers raw auth headers.
-_SECRET_RE = re.compile(r"sk-[A-Za-z0-9_\-]{4,}|Bearer\s+\S+", re.IGNORECASE)
-
-
-def _scrub_secrets(text: str) -> str:
-    """Redact key-shaped tokens so a secret can never reach the terminal or a log."""
-    return _SECRET_RE.sub("[redacted]", text)
-
 
 def _explain_api_error(exc: Exception, model_id: str) -> str:
     """Turn a raw SDK/network exception into a concise, key-safe message.
@@ -99,7 +74,7 @@ def _explain_api_error(exc: Exception, model_id: str) -> str:
     base = f"OpenAI call for model {model_id!r} failed: {hint}"
     if name in _KEY_BEARING_ERRORS:
         return f"{base} [{name}]."
-    detail = _scrub_secrets(str(exc))[:300]
+    detail = scrub_secrets(str(exc))[:300]
     return f"{base} [{name}: {detail}]."
 
 
@@ -210,8 +185,7 @@ def _detect_refusal(message: Any, finish_reason: str | None, text: str) -> bool:
         return True
     if getattr(message, "refusal", None):
         return True
-    lowered = text.lower()
-    return any(marker in lowered for marker in _REFUSAL_MARKERS)
+    return looks_like_refusal(text)
 
 
 def build_openai_client(api_key_env: str = "OPENAI_API_KEY") -> Any:

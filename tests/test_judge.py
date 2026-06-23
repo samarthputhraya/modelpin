@@ -91,10 +91,11 @@ def test_judge_preflight_missing_key_raises(monkeypatch):
         OpenAIJudge("gpt-4o-mini").preflight()
 
 
-def test_build_judge_openai():
-    assert isinstance(build_judge("openai", "gpt-4o-mini", client=FakeClient("{}")), OpenAIJudge)
+def test_build_judge_infers_openai_from_model():
+    assert isinstance(build_judge("gpt-4o-mini", client=FakeClient("{}")), OpenAIJudge)
 
 
-def test_build_judge_unknown_provider_raises():
+def test_build_judge_unknown_judge_model_raises():
+    # A non-OpenAI judge model has no judge yet (the judge is provider-independent).
     with pytest.raises(ProviderError, match="no semantic judge"):
-        build_judge("anthropic", "claude-x")
+        build_judge("gemini-1.5-flash")

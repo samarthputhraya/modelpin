@@ -22,8 +22,12 @@ def get_adapter(provider: str) -> ProviderAdapter:
         from modelpin.providers.openai import OpenAIAdapter
 
         return OpenAIAdapter()
+    if provider == "google":
+        from modelpin.providers.google import GoogleAdapter
+
+        return GoogleAdapter()
     if provider == "anthropic":
         from modelpin.providers.anthropic import AnthropicAdapter
 
         return AnthropicAdapter()
-    raise ValueError(f"Unknown provider: {provider}")
+    raise ValueError(f"Unknown provider: {provider} (try: openai | google | anthropic | fake)")
