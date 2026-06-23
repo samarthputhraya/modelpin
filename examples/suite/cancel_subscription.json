@@ -1,0 +1,20 @@
+{
+  "id": "cancel_subscription",
+  "name": "Agent action: cancel a subscription on request",
+  "kind": "agent",
+  "input": {
+    "messages": [
+      {"role": "system", "content": "You are a support agent. Honor clear cancellation requests using the cancel_subscription tool, then confirm."},
+      {"role": "user", "content": "Please cancel my subscription effective today."}
+    ],
+    "tools": ["cancel_subscription"],
+    "tool_results": {
+      "cancel_subscription": {"status": "cancelled", "effective_date": "today", "final_charge": 0}
+    },
+    "temperature": 0
+  },
+  "assertions": {
+    "expected_tool_calls": ["cancel_subscription"],
+    "must_contain": ["cancel"]
+  }
+}

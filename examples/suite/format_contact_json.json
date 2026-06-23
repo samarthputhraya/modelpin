@@ -1,0 +1,14 @@
+{
+  "id": "format_contact_json",
+  "name": "Format/schema: emit contact as JSON (format-drift sensitive)",
+  "kind": "single",
+  "input": {
+    "messages": [
+      {"role": "user", "content": "Convert this contact to a JSON object with exactly the keys \"name\" and \"email\". Return only the JSON. Contact: 'Jane Doe - jane.doe@example.com'."}
+    ],
+    "temperature": 0
+  },
+  "assertions": {
+    "must_contain": ["name", "email", "jane.doe@example.com"]
+  }
+}

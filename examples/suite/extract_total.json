@@ -1,0 +1,14 @@
+{
+  "id": "extract_total",
+  "name": "Extraction: pull the invoice total",
+  "kind": "single",
+  "input": {
+    "messages": [
+      {"role": "user", "content": "Extract just the total amount owed from this invoice text and reply with the number only: 'Subtotal 38.00, Tax 4.00, Total 42.00 USD'."}
+    ],
+    "temperature": 0
+  },
+  "assertions": {
+    "must_contain": ["42"]
+  }
+}
