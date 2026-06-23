@@ -39,6 +39,12 @@ _GEN_PARAM_KEYS: tuple[str, ...] = (
 #: so we keep this set narrow to avoid silently dropping params a GPT model accepts.
 _REASONING_PREFIXES: tuple[str, ...] = ("o1", "o3", "o4")
 
+#: Cap on model<->tool turns per run so a model that loops on tool calls can't run forever.
+MAX_TOOL_TURNS = 6
+#: Returned for a tool the scenario didn't give a canned result for — keeps multi-step
+#: agent replays deterministic and offline without real tool execution.
+_DEFAULT_TOOL_RESULT: dict[str, Any] = {"status": "ok"}
+
 #: Conservative refusal markers. Refusal is a per-run 0/1 signal that then goes through
 #: the distributional test (diff/stats.py), so an occasional miss washes out — only a
 #: shift in the *refusal rate* between baseline and candidate is ever flagged.
@@ -172,6 +178,31 @@ def _parse_tool_calls(message: Any) -> list[ToolCall]:
     return calls
 
 
+def _tool_result_messages(message: Any, tool_results: dict[str, Any]) -> list[dict[str, Any]]:
+    """Build the ``role: tool`` messages to feed back after the model's tool calls.
+
+    Results are canned (from ``scenario.input['tool_results']``) so multi-step agent
+    replays are deterministic and need no real tool execution; unmatched tools get a
+    generic stub so the conversation can still progress.
+    """
+    messages: list[dict[str, Any]] = []
+    for call in getattr(message, "tool_calls", None) or []:
+        fn = getattr(call, "function", None)
+        name = getattr(fn, "name", None)
+        if not name:
+            continue
+        result = tool_results.get(name, _DEFAULT_TOOL_RESULT)
+        content = result if isinstance(result, str) else json.dumps(result)
+        messages.append(
+            {
+                "role": "tool",
+                "tool_call_id": getattr(call, "id", None) or f"call_{name}",
+                "content": content,
+            }
+        )
+    return messages
+
+
 def _detect_refusal(message: Any, finish_reason: str | None, text: str) -> bool:
     """True if the model declined or was filtered. Combines hard signals (content
     filter, the SDK's structured-output ``refusal`` field) with a phrase heuristic."""
@@ -221,44 +252,64 @@ class OpenAIAdapter(ProviderAdapter):
             self._client = build_openai_client(self._api_key_env)
         return self._client
 
-    def run(self, scenario: Scenario, model_id: str, run_idx: int = 0) -> Trace:
-        messages = list(scenario.input.get("messages", []))
-        tools = _to_tools(scenario.input.get("tools"))
-        gen = {k: scenario.input[k] for k in _GEN_PARAM_KEYS if k in scenario.input}
-        request = _build_request(model_id, messages, tools, gen)
-
-        client = self._get_client()
-        started = time.perf_counter()
+    def _complete(self, client: Any, request: dict[str, Any], scenario_id: str, model_id: str):
+        """One chat completion, with friendly error wrapping + a non-empty-choices guard."""
         try:
             response = client.chat.completions.create(**request)
         except ProviderError:
             raise
         except Exception as exc:  # SDK/network error → friendly, key-safe ProviderError
             raise ProviderError(_explain_api_error(exc, model_id)) from exc
-        latency_ms = (time.perf_counter() - started) * 1000.0
-
-        choices = getattr(response, "choices", None) or []
-        if not choices:
+        if not (getattr(response, "choices", None) or []):
             raise ProviderError(
-                f"OpenAI returned no choices for scenario {scenario.id!r} on {model_id!r}."
+                f"OpenAI returned no choices for scenario {scenario_id!r} on {model_id!r}."
             )
-        choice = choices[0]
-        message = choice.message
-        text = message.content or ""
-        tool_calls = _parse_tool_calls(message)
-        refused = _detect_refusal(message, choice.finish_reason, text)
+        return response
 
-        usage = getattr(response, "usage", None)
-        tokens_in = getattr(usage, "prompt_tokens", 0) or 0
-        tokens_out = getattr(usage, "completion_tokens", 0) or 0
+    def run(self, scenario: Scenario, model_id: str, run_idx: int = 0) -> Trace:
+        tools = _to_tools(scenario.input.get("tools"))
+        gen = {k: scenario.input[k] for k in _GEN_PARAM_KEYS if k in scenario.input}
+        tool_results = scenario.input.get("tool_results") or {}
 
+        client = self._get_client()
+        conversation = list(scenario.input.get("messages", []))
+        all_tool_calls: list[ToolCall] = []
+        final_text = ""
+        refused = False
+        tokens_in = tokens_out = 0
+        started = time.perf_counter()
+
+        # Drive the model<->tool loop: keep feeding canned tool results back until the
+        # model returns a final answer (no tool calls) or we hit the turn cap. This is
+        # what lets multi-step agent trajectories (e.g. lookup_order -> issue_refund)
+        # actually emerge instead of stopping at the first tool call.
+        for _turn in range(MAX_TOOL_TURNS):
+            request = _build_request(model_id, conversation, tools, gen)
+            response = self._complete(client, request, scenario.id, model_id)
+            choice = response.choices[0]
+            message = choice.message
+            final_text = message.content or ""
+            turn_calls = _parse_tool_calls(message)
+            all_tool_calls.extend(turn_calls)
+            refused = refused or _detect_refusal(message, choice.finish_reason, final_text)
+
+            usage = getattr(response, "usage", None)
+            tokens_in += getattr(usage, "prompt_tokens", 0) or 0
+            tokens_out += getattr(usage, "completion_tokens", 0) or 0
+
+            conversation.append(_message_dict(message))
+            if not turn_calls:
+                break  # the model produced its final answer
+            conversation.extend(_tool_result_messages(message, tool_results))
+
+        latency_ms = (time.perf_counter() - started) * 1000.0
         return Trace(
             scenario_id=scenario.id,
             model_id=model_id,
             run_idx=run_idx,
-            messages=messages + [_message_dict(message)],
-            tool_calls=tool_calls,
-            final_output=text,
+            messages=conversation,
+            tool_calls=all_tool_calls,
+            final_output=final_text,
             refused=refused,
             tokens_in=tokens_in,
             tokens_out=tokens_out,
