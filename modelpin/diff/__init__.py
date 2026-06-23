@@ -1,0 +1,154 @@
+"""Behavioral diff orchestrator. See spec section 6.
+
+Combines structural per-run signals (``structural.py``) with the distributional
+permutation test (``stats.py``) into a single per-scenario verdict + confidence.
+
+Decision rule (tuned for a low FALSE-POSITIVE rate — the north-star metric):
+a signal counts as a regression only when the candidate distribution differs from
+baseline at p <= ALPHA *and* the effect clears a minimum size. A single odd run,
+or a majority that merely flips between two equally-likely behaviors, is NOT a
+regression — the permutation test treats it as noise. The semantic LLM-judge
+(``semantic.py``, spec 6B) is not wired in yet; this layer is purely structural
++ statistical and never makes a network call.
+"""
+
+from __future__ import annotations
+
+from typing import Optional
+
+from modelpin.diff.stats import (
+    permutation_pvalue_distribution,
+    permutation_pvalue_mean,
+    total_variation_distance,
+)
+from modelpin.diff.structural import (
+    MatchMode,
+    assertion_violation_flags,
+    canonical_sequence,
+    modal_sequence,
+    refusal_rate,
+    refused_flags,
+    tool_call_sequence,
+)
+from modelpin.models import DiffResult, DiffSignals, DiffVerdict, Scenario, Trace
+
+#: Significance threshold for the permutation test. Lower = fewer false positives.
+ALPHA = 0.05
+#: A tool-call distribution must shift by at least this total-variation distance to
+#: count — guards against trivially-significant jitter once N grows large.
+MIN_TOOL_TVD = 0.5
+#: Ignore refusal-rate rises smaller than this even if "significant" (one run in three).
+MIN_REFUSAL_DELTA = 0.34
+
+
+def _mean(values: list[float]) -> float:
+    return sum(values) / len(values) if values else 0.0
+
+
+def diff_scenario(
+    scenario_id: str,
+    from_model: str,
+    to_model: str,
+    baseline_traces: list[Trace],
+    candidate_traces: list[Trace],
+    scenario: Optional[Scenario] = None,
+    mode: MatchMode = "strict",
+) -> DiffResult:
+    """Compare baseline vs candidate trace distributions for one scenario."""
+    if not baseline_traces or not candidate_traces:
+        return DiffResult(
+            scenario_id=scenario_id,
+            from_model=from_model,
+            to_model=to_model,
+            verdict=DiffVerdict.unchanged,
+            confidence=0.0,
+            explanation="insufficient data: need baseline and candidate runs",
+        )
+
+    # --- tool-call trajectory distribution -------------------------------------
+    base_keys = [canonical_sequence(tool_call_sequence(t), mode) for t in baseline_traces]
+    cand_keys = [canonical_sequence(tool_call_sequence(t), mode) for t in candidate_traces]
+    tool_tvd = total_variation_distance(base_keys, cand_keys)
+    tool_p = permutation_pvalue_distribution(base_keys, cand_keys)
+    tool_regressed = tool_p <= ALPHA and tool_tvd >= MIN_TOOL_TVD
+
+    # --- refusal rate ----------------------------------------------------------
+    refusal_delta = refusal_rate(candidate_traces) - refusal_rate(baseline_traces)
+    refusal_p = permutation_pvalue_mean(
+        refused_flags(baseline_traces), refused_flags(candidate_traces)
+    )
+    refusal_regressed = refusal_p <= ALPHA and refusal_delta >= MIN_REFUSAL_DELTA
+
+    # --- output format / assertion drift (soft signal) -------------------------
+    fmt_p = 1.0
+    fmt_drift = False
+    if scenario and scenario.assertions:
+        a = scenario.assertions
+        base_v = assertion_violation_flags(baseline_traces, a.must_contain, a.must_not_contain)
+        cand_v = assertion_violation_flags(candidate_traces, a.must_contain, a.must_not_contain)
+        fmt_delta = _mean(cand_v) - _mean(base_v)
+        fmt_p = permutation_pvalue_mean(base_v, cand_v)
+        fmt_drift = fmt_p <= ALPHA and fmt_delta > 0
+
+    # --- cheap deltas (informational; not part of the verdict) -----------------
+    latency_delta = _mean([t.latency_ms for t in candidate_traces]) - _mean(
+        [t.latency_ms for t in baseline_traces]
+    )
+    token_delta = round(
+        _mean([t.tokens_out for t in candidate_traces])
+        - _mean([t.tokens_out for t in baseline_traces])
+    )
+
+    signals = DiffSignals(
+        tool_call_match=round(1.0 - tool_tvd, 3),  # 1.0 == identical distributions
+        format_valid=not fmt_drift,
+        refusal_delta=round(refusal_delta, 3),
+        latency_delta_ms=round(latency_delta, 3),
+        token_delta=int(token_delta),
+    )
+
+    # --- verdict ---------------------------------------------------------------
+    reasons: list[str] = []
+    hard_pvalues: list[float] = []
+    verdict = DiffVerdict.unchanged
+
+    if tool_regressed:
+        verdict = DiffVerdict.regression
+        hard_pvalues.append(tool_p)
+        reasons.append(
+            f"tool-call behavior changed: {list(modal_sequence(baseline_traces, mode))} "
+            f"-> {list(modal_sequence(candidate_traces, mode))}"
+        )
+    if refusal_regressed:
+        verdict = DiffVerdict.regression
+        hard_pvalues.append(refusal_p)
+        reasons.append(
+            f"refusal rate {refusal_rate(baseline_traces):.0%} -> {refusal_rate(candidate_traces):.0%}"
+        )
+    if fmt_drift:
+        if verdict != DiffVerdict.regression:
+            verdict = DiffVerdict.changed_minor
+        reasons.append("output format drift: violates the scenario's text assertions")
+
+    # confidence = how sure we are of the verdict.
+    #   regression/minor -> 1 - p of the firing signal (small p => high confidence);
+    #   unchanged        -> smallest p across signals (1.0 when distributions match,
+    #                       lower when something was a borderline near-miss).
+    if verdict == DiffVerdict.regression:
+        confidence = round(1.0 - min(hard_pvalues), 3)
+    elif verdict == DiffVerdict.changed_minor:
+        confidence = round(1.0 - fmt_p, 3)
+    else:
+        confidence = round(min(tool_p, refusal_p, fmt_p), 3)
+
+    explanation = "; ".join(reasons) if reasons else "no statistically significant behavior change"
+
+    return DiffResult(
+        scenario_id=scenario_id,
+        from_model=from_model,
+        to_model=to_model,
+        verdict=verdict,
+        signals=signals,
+        confidence=confidence,
+        explanation=explanation,
+    )

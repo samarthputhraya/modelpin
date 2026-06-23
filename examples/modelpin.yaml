@@ -1,0 +1,9 @@
+# Example modelpin.yaml (mp init would generate this in your repo).
+models:
+  - claude-opus-4-6
+scenarios_dir: scenarios
+providers:
+  - anthropic
+runs: 5
+judge_model: claude-opus-4-6   # used by the (TODO) semantic diff
+regression_threshold: 0.2

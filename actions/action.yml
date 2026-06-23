@@ -1,0 +1,19 @@
+# Modelpin GitHub Action (Phase 1 stub). Lets a repo run `mp check` in CI.
+# TODO: pin to a released version, cache deps, post the PR comment via the GitHub API.
+name: "Modelpin"
+description: "Catch AI model-migration regressions in CI before they hit production."
+branding: { icon: "shield", color: "yellow" }
+inputs:
+  to:
+    description: "The new model id to test against your baseline."
+    required: true
+runs:
+  using: "composite"
+  steps:
+    - uses: actions/setup-python@v5
+      with:
+        python-version: "3.12"
+    - shell: bash
+      run: pip install modelpin
+    - shell: bash
+      run: modelpin check --to "${{ inputs.to }}"
