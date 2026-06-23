@@ -49,16 +49,20 @@ def _response(message, finish_reason="stop", prompt_tokens=11, completion_tokens
 
 
 class FakeClient:
-    """Records the kwargs of the last create() call and returns a canned response."""
+    """Returns canned responses in sequence (clamps to the last so the tool loop always
+    terminates), and records the kwargs + count of create() calls."""
 
-    def __init__(self, response):
-        self._response = response
+    def __init__(self, responses):
+        self._responses = responses if isinstance(responses, list) else [responses]
         self.last_kwargs: dict | None = None
+        self.calls = 0
         self.chat = SimpleNamespace(completions=SimpleNamespace(create=self._create))
 
     def _create(self, **kwargs):
         self.last_kwargs = kwargs
-        return self._response
+        response = self._responses[min(self.calls, len(self._responses) - 1)]
+        self.calls += 1
+        return response
 
 
 def _scenario(**input_kwargs) -> Scenario:
@@ -95,7 +99,8 @@ def test_tool_calls_parsed_with_json_arguments():
             _fn_tool_call("issue_refund", '{"amount": 5.0}'),
         ],
     )
-    client = FakeClient(_response(msg, finish_reason="tool_calls"))
+    # turn 1 emits both calls; turn 2 has no calls -> the loop ends with the final answer
+    client = FakeClient([_response(msg, finish_reason="tool_calls"), _response(_message("done"))])
     adapter = OpenAIAdapter(client=client)
 
     trace = adapter.run(_scenario(tools=["lookup_order", "issue_refund"]), "gpt-4o")
@@ -103,7 +108,40 @@ def test_tool_calls_parsed_with_json_arguments():
     assert [tc.name for tc in trace.tool_calls] == ["lookup_order", "issue_refund"]
     assert trace.tool_calls[0].arguments == {"order_id": 123}
     assert trace.tool_calls[1].arguments == {"amount": 5.0}
-    assert trace.final_output == ""  # content was None
+    assert trace.final_output == "done"
+
+
+def test_multi_step_agent_trajectory_emerges_across_turns():
+    """The replay-depth fix: a tool call on turn 1, a SECOND tool call on turn 2 (after
+    its result is fed back), then a final answer. The full [lookup_order, issue_refund]
+    trajectory must be captured — not truncated at the first tool call."""
+    turn1 = _response(_message(None, [_fn_tool_call("lookup_order", "{}")]), "tool_calls")
+    turn2 = _response(_message(None, [_fn_tool_call("issue_refund", "{}")]), "tool_calls")
+    final = _response(_message("Refund issued."))
+    client = FakeClient([turn1, turn2, final])
+    scenario = _scenario(
+        tools=["lookup_order", "issue_refund"],
+        tool_results={"lookup_order": {"order_id": 123, "status": "shipped"}},
+    )
+    trace = OpenAIAdapter(client=client).run(scenario, "gpt-4o")
+
+    assert [tc.name for tc in trace.tool_calls] == ["lookup_order", "issue_refund"]
+    assert trace.final_output == "Refund issued."
+    assert client.calls == 3  # two tool turns + the final answer
+    # the fed-back tool result is in the conversation the trace records
+    assert any(m.get("role") == "tool" for m in trace.messages)
+
+
+def test_tool_loop_is_capped_at_max_turns():
+    """A model that calls tools forever must not loop forever."""
+    from modelpin.providers.openai import MAX_TOOL_TURNS
+
+    looping = _response(_message(None, [_fn_tool_call("spin", "{}")]), "tool_calls")
+    client = FakeClient([looping])  # always returns a tool call
+    trace = OpenAIAdapter(client=client).run(_scenario(tools=["spin"]), "gpt-4o")
+
+    assert client.calls == MAX_TOOL_TURNS
+    assert len(trace.tool_calls) == MAX_TOOL_TURNS
 
 
 def test_string_tools_are_wrapped_into_function_specs():
@@ -176,7 +214,7 @@ def test_tool_call_missing_function_is_skipped():
     good = _fn_tool_call("issue_refund", "{}")
     broken = SimpleNamespace(id="call_x", type="function")  # no .function attribute
     msg = _message(content=None, tool_calls=[broken, good])
-    client = FakeClient(_response(msg, finish_reason="tool_calls"))
+    client = FakeClient([_response(msg, finish_reason="tool_calls"), _response(_message("done"))])
     adapter = OpenAIAdapter(client=client)
 
     trace = adapter.run(_scenario(tools=["issue_refund"]), "gpt-4o")
@@ -210,7 +248,7 @@ def test_gpt_model_passes_temperature_and_max_tokens():
 
 def test_malformed_tool_arguments_degrade_gracefully():
     msg = _message(content=None, tool_calls=[_fn_tool_call("do_thing", "{not valid json")])
-    client = FakeClient(_response(msg, finish_reason="tool_calls"))
+    client = FakeClient([_response(msg, finish_reason="tool_calls"), _response(_message("done"))])
     adapter = OpenAIAdapter(client=client)
 
     trace = adapter.run(_scenario(tools=["do_thing"]), "gpt-4o")
