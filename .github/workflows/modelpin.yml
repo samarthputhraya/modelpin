@@ -1,0 +1,39 @@
+# Modelpin dogfooding itself in CI — proves the GitHub Action end-to-end on real PRs:
+# install -> mp check -> sticky PR comment -> status check.
+#
+# This is a self-consistency smoke (gpt-4o-mini vs its own committed baseline): a green check
+# means the engine isn't crying wolf on normal model nondeterminism (the false-positive
+# north-star). It uses the LOCAL action (`uses: ./`) and installs the LOCAL package
+# (`modelpin-spec: ".[providers]"`), so every PR validates the action.yml + engine *as they are
+# in that PR* — no published tag required.
+#
+# Needs ONE repo secret: OPENAI_API_KEY (Settings -> Secrets and variables -> Actions).
+# To make it a real cross-vendor migration check, set `to:` + `provider:` to another vendor
+# (e.g. to: gemini-3.1-flash-lite, provider: google) and add that vendor's key as a secret.
+
+name: Modelpin
+
+on:
+  pull_request:
+  workflow_dispatch:          # run on demand (e.g. the day a provider ships a new model)
+
+permissions:
+  contents: read
+  pull-requests: write        # required so the action can post/update the PR comment
+
+jobs:
+  model-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Modelpin behavioral check
+        uses: ./                          # the action in this repo (root action.yml)
+        with:
+          from: gpt-4o-mini               # committed baseline: .modelpin/baseline-gpt-4o-mini.json
+          to: gpt-4o-mini                 # re-check the same model -> expect "unchanged"
+          provider: openai
+          config: modelpin.yaml
+          runs: "5"
+          modelpin-spec: ".[providers]"   # install this repo's code (pre-tag dogfood)
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
