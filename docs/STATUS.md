@@ -115,12 +115,15 @@ pairs → false-alarm rate; a known-regression pair → confirmed detection) and
    `refund_request` produced the full `lookup_order → issue_refund` trajectory and the
    final answer consumed the canned tool data, confirming the `function_response`
    (role="user") feedback is correct. Cross-vendor checks use an OpenAI judge (provider
-   inferred from `judge_model`). **Still pending (external):** the true gpt-vs-gemini
-   cross-vendor run (needs OpenAI reachable; was down at time of writing) — when up:
-   `mp baseline --provider openai --model gpt-4o-mini` then
-   `mp check --provider google --to gemini-2.5-flash --from gpt-4o-mini`. Gemini free-tier
-   quota also limits sustained runs (gemini-2.0-flash returns 429; 2.5-flash works but is
-   intermittently 503). **Anthropic** stays a $0 stub until an `ANTHROPIC_API_KEY` appears.
+   inferred from `judge_model`). **✅ First cross-vendor run completed:**
+   `mp check --provider google --to gemini-2.5-flash-lite --from gpt-4o-mini` over 2 suite
+   scenarios → both **unchanged** (the OpenAI judge found gpt-4o-mini and
+   gemini-2.5-flash-lite behaviorally equivalent — "safe to adopt"). The full gpt-vs-gemini
+   8-scenario run is limited only by Gemini **free-tier RPM** (per AI Studio: 2.0-flash =
+   0 RPM/unavailable, 2.5-flash = 5 RPM, **2.5-flash-lite = 10 RPM, 3.1-flash-lite = 15
+   RPM**) — use a higher-RPM model + small/paced runs, or enable billing; 503s are
+   transient Google capacity (clear on retry). **Anthropic** stays a $0 stub until an
+   `ANTHROPIC_API_KEY` appears.
 7. **Corporate-proxy TLS:** the FP harness opts into `truststore.inject_into_ssl()`; still
    worth a built-in opt-in at CLI startup so devs behind an intercepting proxy don't hit a
    `CERTIFICATE_VERIFY_FAILED` on first run. Verification stays ON (OS trust store).
