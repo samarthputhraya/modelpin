@@ -13,8 +13,11 @@ venv/
 .DS_Store
 *.log
 
-# Local Modelpin state (recorded baselines + last rendered report)
-.modelpin/
+# Local Modelpin state: ignore transient outputs (rendered report, temp files) but ALLOW
+# committing recorded baselines — the migration flow commits the known-good baseline so CI
+# can diff a candidate model against it. (Re-include needs `.modelpin/*`, not `.modelpin/`.)
+.modelpin/*
+!.modelpin/baseline-*.json
 
 # Ad-hoc calibration re-run scratch output (committed evidence snapshots live in
 # examples/calibration/results/ instead — see that dir + docs/STATUS.md).
