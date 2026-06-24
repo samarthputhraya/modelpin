@@ -1,25 +1,26 @@
-# Modelpin dogfooding itself in CI — proves the GitHub Action end-to-end on real PRs:
-# install -> mp check -> sticky PR comment -> status check.
+# Modelpin dogfooding itself — an on-demand self-consistency smoke that exercises the GitHub
+# Action end-to-end (install -> mp check -> status check). It replays gpt-4o-mini against its own
+# committed baseline; a green run means the engine isn't crying wolf on normal model
+# nondeterminism (the false-positive north-star). Uses the LOCAL action (`uses: ./`) + installs
+# the LOCAL package (`modelpin-spec: ".[providers]"`), so it validates the action.yml + engine
+# as they are in the repo — no published tag required.
 #
-# This is a self-consistency smoke (gpt-4o-mini vs its own committed baseline): a green check
-# means the engine isn't crying wolf on normal model nondeterminism (the false-positive
-# north-star). It uses the LOCAL action (`uses: ./`) and installs the LOCAL package
-# (`modelpin-spec: ".[providers]"`), so every PR validates the action.yml + engine *as they are
-# in that PR* — no published tag required.
+# MANUAL ONLY (workflow_dispatch): modelpin isn't itself an LLM app, so we don't run a
+# model-check on every PR (it'd spend API calls for little signal). The full PR-comment flow was
+# validated live on PR #2. The recommended *per-PR* pattern for a real app — on: pull_request,
+# with the sticky comment + fail-on-regression — is in examples/github-workflow.yml.
 #
 # Needs ONE repo secret: OPENAI_API_KEY (Settings -> Secrets and variables -> Actions).
-# To make it a real cross-vendor migration check, set `to:` + `provider:` to another vendor
-# (e.g. to: gemini-3.1-flash-lite, provider: google) and add that vendor's key as a secret.
+# Run it from the Actions tab ("Run workflow") or: gh workflow run modelpin.yml.
 
 name: Modelpin
 
 on:
-  pull_request:
-  workflow_dispatch:          # run on demand (e.g. the day a provider ships a new model)
+  workflow_dispatch:
 
 permissions:
   contents: read
-  pull-requests: write        # required so the action can post/update the PR comment
+  pull-requests: write        # lets the action comment when run in a PR context
 
 jobs:
   model-check:
