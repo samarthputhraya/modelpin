@@ -65,16 +65,27 @@ comment) → fixed the alarmist PR-header (now ✅/⚠️/🚨 by outcome) + bum
 majors + fixed the `.modelpin/` gitignore (baselines are now committable) → **tagged `v0.1.1` + `v1`**
 (re-pointed a stale `v1`). The DoD (held-out FP 0/8) was met earlier this phase.
 
-**Remaining (ALL OPTIONAL — nothing blocking):**
-1. **GitHub Marketplace** listing — publish from the `v1` release page (root `action.yml` ✓; needs a
-   unique action name + accepting Marketplace terms).
-2. **CHANGELOG.md** + a `v0.1.1`/`v1` GitHub **release note**.
-3. **License-metadata cleanup** for the next version (silence setuptools deprecation):
-   `license = "Apache-2.0"` SPDX string, drop the `License ::` classifier, `setuptools>=77`.
-4. **Modelpin Report #1** — gated on a real provider model launch to write about (not engineering).
-5. **Anthropic adapter** (needs a paid `ANTHROPIC_API_KEY`); retire stale `regression_threshold`;
-   subset/superset + cost/latency into the verdict; expand the semantic calibration set (≥30 pairs,
-   real migration traces, a non-OpenAI judge) before high-stakes reliance.
+**▶ NEXT STEP (per the rules — NOT optional): Modelpin Report #1 / build `mp report`.**
+This is the rule-defined next step, from three sources: `CLAUDE.md` "Current focus" (*"Phase 0 —
+core engine MVP + Modelpin Report #1"*); spec §11 Phase-0 **DoD** (its 2nd half — *"Publish Modelpin
+Report #1 on the next model release… **This is also the go/no-go signal**"* — the 1st half, regression
+detection + low FP, is ✅ done); and the `CLAUDE.md` build order (…→ **Reporter** → GitHub Action),
+where the public Reporter is the last unbuilt box — **`mp report` is still a TODO stub** (`cli.py`).
+Nuance: *publishing* Report #1 is gated on a real provider model launch, but *building* the capability
+(open public scenario suite + reproducible report generator behind `mp report`) is NOT gated — build
+it now to be launch-ready (spec: "published within hours of each major launch"). Approach per ECC
+**development-workflow**: research/reuse → **plan** (planner agent + planning docs) → TDD (golden /
+offline tests, no live calls) → code-review → commit. Honor the trust guardrails (reproducible;
+measurement/opinion framing — "on our open suite we observed…", never "Model X is worse").
+
+**Optional polish (NOT in the roadmap — do anytime, none blocking):**
+1. **GitHub Marketplace** listing — publish from the `v1` release page (root `action.yml` ✓).
+2. **CHANGELOG.md** + a `v0.1.1`/`v1` GitHub release note.
+3. **License-metadata cleanup** (silence setuptools deprecation): `license = "Apache-2.0"` SPDX
+   string, drop the `License ::` classifier, `setuptools>=77`.
+4. **Anthropic adapter** (needs a paid key — DoD doesn't require it; you already have 3 vendors);
+   retire stale `regression_threshold`; subset/superset + cost/latency into the verdict; expand the
+   semantic calibration set (≥30 pairs, real migration traces, a non-OpenAI judge).
 
 **Windows gotcha (durable):** `mp` is a built-in **PowerShell** alias for `Move-ItemProperty`, so
 `mp <cmd>` runs the alias, not the CLI. Use `modelpin <cmd>` (or `mp.exe`, or `Remove-Item Alias:mp`).
