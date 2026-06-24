@@ -42,15 +42,15 @@ black clean.**
 vendor (Groq/Llama)~~ ✅. (2) ~~**calibrate** the semantic threshold + promote the judge to a
 CI-failing `regression`~~ ✅ (see "Semantic-judge calibration" below). (3) ~~real **GitHub
 Action** (PR comment via API)~~ ✅ + ~~**PyPI-ready packaging**~~ ✅ (builds a clean 0.1.0
-wheel; `actions/action.yml` posts a sticky PR comment + fails on regression; see
+wheel; root `action.yml` posts a sticky PR comment + fails on regression; see
 `docs/PUBLISHING.md`). (4) ~~**publish to PyPI**~~ ✅ **LIVE: `modelpin 0.1.0` on PyPI**
 (`pip install "modelpin[providers]"`; wheel + sdist; verified via pypi.org/pypi/modelpin/json).
 **Next:** (5) **tag the release** (`git tag v0.1.0 && git tag v1 && git push --tags`) so the
 Action's `@v1` ref resolves — ideally merge PR #1 → main first and tag on main; (6) **live dogfood**
-the Action (secrets + a PR → sticky comment); (7) GitHub **Marketplace** listing (needs `action.yml`
-at repo root — see below); (8) **Modelpin Report #1** (gated on a real model launch); (9) Anthropic
-adapter (later; paid key); retire stale `regression_threshold`; subset/superset + cost/latency in
-the verdict. Full list below.
+the Action (secrets + a PR → sticky comment); (7) GitHub **Marketplace** listing (`action.yml` is now
+at the repo root ✓ → ready to publish on a tagged release); (8) **Modelpin Report #1** (gated on a
+real model launch); (9) Anthropic adapter (later; paid key); retire stale `regression_threshold`;
+subset/superset + cost/latency in the verdict. Full list below.
 
 **Windows gotcha (durable):** `mp` is a built-in **PowerShell** alias for `Move-ItemProperty`, so
 `mp <cmd>` runs the alias, not the CLI. Use `modelpin <cmd>` (or `mp.exe`, or `Remove-Item Alias:mp`).
@@ -243,15 +243,15 @@ pairs → false-alarm rate; a known-regression pair → confirmed detection) and
    (gate via the permutation test; latency is jittery — handle carefully); an
    "inconclusive / underpowered → re-run" surface (spec §6C); wire `subset/superset`
    + `expected_tool_calls`/`output_schema` assertions into the verdict.
-9. **GitHub Action — ✅ DONE (PR comment via API).** `actions/action.yml` is a real composite
+9. **GitHub Action — ✅ DONE (PR comment via API; published).** Root `action.yml` (moved from
+   `actions/` so it's Marketplace-eligible; ref `samarthputhraya/modelpin@v1`) is a real composite
    action: install → (optional baseline) → `mp check` → **sticky PR comment** (find-or-update
    via `actions/github-script`, marker `<!-- modelpin-report -->`, no spam) → **fail on
    regression**. Inputs cover `to/from/provider/config/runs/match/comment/fail-on-regression/
    modelpin-spec`; cross-vendor works (set `provider` + the right secret). Docs +
-   copy-pasteable workflow: `actions/README.md`, `examples/github-workflow.yml`. **PyPI-ready:**
-   `pyproject.toml` 0.1.0 + classifiers, builds a clean wheel with `mp`/`modelpin` entry points;
-   publish steps (owner's tokens) in `docs/PUBLISHING.md`. Remaining: the actual `twine upload`
-   + Marketplace publish + a green dogfood CI run.
+   copy-pasteable workflow: `actions/README.md`, `examples/github-workflow.yml`. **Published:**
+   `modelpin 0.1.0` LIVE on PyPI (`pip install "modelpin[providers]"`). Remaining: tag the release,
+   the Marketplace publish (root `action.yml` ✓), and a green dogfood CI run.
 10. **Smaller audit items:** detector registry-validation (cut regex false positives);
    retire the now-stale `regression_threshold` config field; add the missing per-module
    tests for watcher/report. (Scenario-JSON error handling + config/cli tests: ✅ done.)

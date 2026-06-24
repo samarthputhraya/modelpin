@@ -36,16 +36,15 @@ release (keep them in sync), tag it (`git tag v0.1.0 && git push --tags`), then 
 
 ## 2. GitHub Action
 
-The action lives in `actions/` (`action.yml` + `README.md`).
+`action.yml` is at the **repo root** (so it's Marketplace-eligible); detailed docs are in
+[`actions/README.md`](../actions/README.md). Consumers reference it as
+`samarthputhraya/modelpin@v1`. `modelpin` is on PyPI, so the action's default
+`modelpin-spec: modelpin[providers]` works out of the box.
 
-- **Before PyPI:** consumers set
-  `modelpin-spec: "modelpin[providers] @ git+https://github.com/samarthputhraya/modelpin@TAG"`.
-- **After PyPI:** the default `modelpin-spec: modelpin[providers]` just works.
-
-To publish to the **GitHub Marketplace**: push a tag (e.g. `v1`), open the tag/release on
-GitHub, and check "Publish this Action to the GitHub Marketplace" (requires the `action.yml`
-at the path consumers reference and a unique action name). Maintain a moving `v1` tag for
-consumers who pin to the major.
+To publish to the **GitHub Marketplace**: push a tag (e.g. `v1`), open the release for that tag
+on GitHub, and check "**Publish this Action to the GitHub Marketplace**" (needs the root
+`action.yml` ✓ and a unique action name — "Modelpin"; accept the Marketplace terms if prompted).
+Maintain a moving `v1` tag (re-point it on each release) for consumers who pin to the major.
 
 ## 3. Checklist before the first public release
 
