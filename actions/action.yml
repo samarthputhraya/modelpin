@@ -1,19 +1,150 @@
-# Modelpin GitHub Action (Phase 1 stub). Lets a repo run `mp check` in CI.
-# TODO: pin to a released version, cache deps, post the PR comment via the GitHub API.
+# Modelpin GitHub Action — run `mp check` in CI and post the behavioral diff as a PR comment.
+#
+# Catch AI model-migration regressions before they ship: replay your scenarios on a new model,
+# diff the behavior against a committed baseline, post a PR-style report, and fail the check on a
+# real regression. BYO-key (the END USER's API key from repo secrets) — see spec §9.
 name: "Modelpin"
 description: "Catch AI model-migration regressions in CI before they hit production."
-branding: { icon: "shield", color: "yellow" }
+branding:
+  icon: "shield"
+  color: "yellow"
+
 inputs:
   to:
-    description: "The new model id to test against your baseline."
+    description: "The new model id to test against your baseline (e.g. gpt-5.5)."
     required: true
+  from:
+    description: "Baseline model id (defaults to the first model in modelpin.yaml)."
+    required: false
+    default: ""
+  provider:
+    description: "Provider for the candidate replay: openai | google | anthropic | groq | openrouter | together | cerebras."
+    required: false
+    default: "openai"
+  config:
+    description: "Path to modelpin.yaml."
+    required: false
+    default: "modelpin.yaml"
+  scenarios-dir:
+    description: "Scenarios directory (defaults to scenarios_dir in modelpin.yaml)."
+    required: false
+    default: ""
+  runs:
+    description: "Replays per scenario (defaults to runs in modelpin.yaml; >=5 recommended)."
+    required: false
+    default: ""
+  match:
+    description: "Tool-call match mode: strict | unordered | subset | superset."
+    required: false
+    default: "strict"
+  baseline:
+    description: "Record a fresh baseline for `from` before checking (needs the old model still available). Usually you commit the baseline instead."
+    required: false
+    default: "false"
+  comment:
+    description: "Post (and update) a sticky PR comment with the report."
+    required: false
+    default: "true"
+  fail-on-regression:
+    description: "Fail the job when a regression is detected (the migration gate)."
+    required: false
+    default: "true"
+  github-token:
+    description: "Token used to post the PR comment."
+    required: false
+    default: ${{ github.token }}
+  modelpin-spec:
+    description: "pip install spec for Modelpin. Override to pin a version or install from git pre-PyPI (e.g. 'modelpin[providers]==0.1.0' or 'modelpin[providers] @ git+https://github.com/OWNER/REPO@TAG')."
+    required: false
+    default: "modelpin[providers]"
+  python-version:
+    description: "Python version to set up."
+    required: false
+    default: "3.12"
+  working-directory:
+    description: "Directory to run Modelpin in."
+    required: false
+    default: "."
+
+outputs:
+  verdict-exit-code:
+    description: "0 if no regression, 1 if a regression was detected."
+    value: ${{ steps.check.outputs.code }}
+  report-path:
+    description: "Path to the rendered Markdown report."
+    value: ${{ steps.check.outputs.report }}
+
 runs:
   using: "composite"
   steps:
-    - uses: actions/setup-python@v5
+    - name: Set up Python
+      uses: actions/setup-python@v5
       with:
-        python-version: "3.12"
-    - shell: bash
-      run: pip install modelpin
-    - shell: bash
-      run: modelpin check --to "${{ inputs.to }}"
+        python-version: ${{ inputs.python-version }}
+
+    - name: Install Modelpin
+      shell: bash
+      run: python -m pip install --upgrade pip && python -m pip install "${{ inputs.modelpin-spec }}"
+
+    - name: Record baseline (optional)
+      if: ${{ inputs.baseline == 'true' }}
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: |
+        mp baseline \
+          ${{ inputs.from && format('--model "{0}"', inputs.from) || '' }} \
+          --provider "${{ inputs.provider }}" \
+          --config "${{ inputs.config }}" \
+          ${{ inputs.scenarios-dir && format('--scenarios-dir "{0}"', inputs.scenarios-dir) || '' }} \
+          ${{ inputs.runs && format('--runs {0}', inputs.runs) || '' }}
+
+    - name: Run mp check
+      id: check
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: |
+        set +e
+        mp check \
+          --to "${{ inputs.to }}" \
+          ${{ inputs.from && format('--from "{0}"', inputs.from) || '' }} \
+          --provider "${{ inputs.provider }}" \
+          --match "${{ inputs.match }}" \
+          --config "${{ inputs.config }}" \
+          ${{ inputs.scenarios-dir && format('--scenarios-dir "{0}"', inputs.scenarios-dir) || '' }} \
+          ${{ inputs.runs && format('--runs {0}', inputs.runs) || '' }}
+        code=$?
+        echo "code=$code" >> "$GITHUB_OUTPUT"
+        echo "report=${{ inputs.working-directory }}/.modelpin/last-report.md" >> "$GITHUB_OUTPUT"
+        exit 0
+
+    - name: Post PR comment
+      if: ${{ inputs.comment == 'true' && github.event.pull_request.number }}
+      uses: actions/github-script@v7
+      with:
+        github-token: ${{ inputs.github-token }}
+        script: |
+          const fs = require('fs');
+          const marker = '<!-- modelpin-report -->';
+          const path = `${{ steps.check.outputs.report }}`;
+          let body;
+          if (fs.existsSync(path)) {
+            body = `${marker}\n${fs.readFileSync(path, 'utf8')}`;
+          } else {
+            body = `${marker}\n**Modelpin**: the check did not produce a report (it may have failed before diffing). See the job log.`;
+          }
+          const { owner, repo } = context.repo;
+          const issue_number = context.payload.pull_request.number;
+          const { data: comments } = await github.rest.issues.listComments({ owner, repo, issue_number });
+          const existing = comments.find(c => c.body && c.body.includes(marker));
+          if (existing) {
+            await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body });
+          } else {
+            await github.rest.issues.createComment({ owner, repo, issue_number, body });
+          }
+
+    - name: Fail on regression
+      if: ${{ inputs.fail-on-regression == 'true' && steps.check.outputs.code != '0' }}
+      shell: bash
+      run: |
+        echo "::error::Modelpin detected a behavioral regression migrating to '${{ inputs.to }}'. See the PR comment / report."
+        exit 1

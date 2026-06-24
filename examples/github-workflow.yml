@@ -1,0 +1,35 @@
+# Example: drop this in your repo at .github/workflows/modelpin.yml
+#
+# It runs Modelpin on every pull request, comparing a candidate model against your committed
+# baseline, posts the behavioral diff as a sticky PR comment, and fails the check on a
+# regression. Replace OWNER/REPO with the Modelpin action's repo+tag, and set your model ids.
+
+name: Modelpin
+
+on:
+  pull_request:
+  workflow_dispatch:        # let you trigger it by hand when a provider ships a new model
+
+permissions:
+  contents: read
+  pull-requests: write      # required so the action can post/update the PR comment
+
+jobs:
+  model-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Modelpin check
+        uses: OWNER/REPO/actions@v1     # pin to a release tag
+        with:
+          from: gpt-4o-mini             # the model you depend on today (committed baseline)
+          to: gpt-5.5                    # the new model to test before adopting
+          provider: openai
+          runs: "5"
+        env:
+          # BYO-key from repo secrets — never inline a key.
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          # If modelpin.yaml sets a judge_model on another provider, add its key too, e.g.:
+          # GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          # GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
