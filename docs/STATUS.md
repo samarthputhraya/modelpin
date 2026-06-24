@@ -43,10 +43,18 @@ vendor (Groq/Llama)~~ ✅. (2) ~~**calibrate** the semantic threshold + promote 
 CI-failing `regression`~~ ✅ (see "Semantic-judge calibration" below). (3) ~~real **GitHub
 Action** (PR comment via API)~~ ✅ + ~~**PyPI-ready packaging**~~ ✅ (builds a clean 0.1.0
 wheel; `actions/action.yml` posts a sticky PR comment + fails on regression; see
-`docs/PUBLISHING.md`). **Next:** (4) **publish** to PyPI + GitHub Marketplace (needs the
-owner's tokens — steps in `docs/PUBLISHING.md`); (5) **Modelpin Report #1** (gated on a real
-model launch); (6) Anthropic adapter (later; needs a paid key); retire stale
-`regression_threshold`; subset/superset + cost/latency in the verdict. Full list below.
+`docs/PUBLISHING.md`). (4) ~~**publish to PyPI**~~ ✅ **LIVE: `modelpin 0.1.0` on PyPI**
+(`pip install "modelpin[providers]"`; wheel + sdist; verified via pypi.org/pypi/modelpin/json).
+**Next:** (5) **tag the release** (`git tag v0.1.0 && git tag v1 && git push --tags`) so the
+Action's `@v1` ref resolves — ideally merge PR #1 → main first and tag on main; (6) **live dogfood**
+the Action (secrets + a PR → sticky comment); (7) GitHub **Marketplace** listing (needs `action.yml`
+at repo root — see below); (8) **Modelpin Report #1** (gated on a real model launch); (9) Anthropic
+adapter (later; paid key); retire stale `regression_threshold`; subset/superset + cost/latency in
+the verdict. Full list below.
+
+**Windows gotcha (durable):** `mp` is a built-in **PowerShell** alias for `Move-ItemProperty`, so
+`mp <cmd>` runs the alias, not the CLI. Use `modelpin <cmd>` (or `mp.exe`, or `Remove-Item Alias:mp`).
+The `mp` alias is fine in cmd/bash/zsh. Documented in the README quickstart.
 
 **Semantic-judge calibration & promotion (DONE 2026-06-24).** Built a labeled calibration set
 [`examples/calibration/`](../examples/calibration/) — **distinct from the held-out suite** so it

@@ -28,13 +28,17 @@ can reproduce it and disagree.
 
 ## Quickstart
 
-Install from source (not on PyPI yet — see [Install](#install)):
+Install (Python 3.12+):
 
 ```bash
-git clone https://github.com/samarthputhraya/modelpin
-cd modelpin
-pip install -e ".[dev,providers]"
+pip install "modelpin[providers]"      # or: pipx install "modelpin[providers]"
+modelpin version                        # -> modelpin 0.1.0
 ```
+
+> **Windows PowerShell:** run `modelpin …`, not `mp …`. PowerShell ships a built-in `mp` alias
+> (`Move-ItemProperty`) that shadows the CLI. The `mp` alias works everywhere else (cmd, bash,
+> zsh) and via `mp.exe`; on PowerShell either use `modelpin`, call `mp.exe`, or run
+> `Remove-Item Alias:mp` once per session (add it to your `$PROFILE` to make it permanent).
 
 ### Try it offline, no API key (30 seconds)
 
@@ -280,24 +284,22 @@ Shared flags on `baseline` / `check`: `--from` / `--model`, `--provider`, `--run
 
 ## Install
 
-**Not on PyPI yet** (publishing is pending). For now, from source:
+```bash
+pip install "modelpin[providers]"     # or: pipx install "modelpin[providers]"   (Python 3.12+)
+modelpin version
+```
+
+The `providers` extra pulls in the `openai`, `google-genai`, and `anthropic` SDKs. The bare
+`pip install modelpin` (no extra) runs the offline `fake` path with no provider SDKs at all.
+
+From source (for development):
 
 ```bash
 git clone https://github.com/samarthputhraya/modelpin
 cd modelpin
 python -m venv .venv && source .venv/bin/activate
-pip install -e ".[dev,providers]"     # Python 3.12+; 'providers' pulls the live SDKs
-mp version
+pip install -e ".[dev,providers]"
 ```
-
-Once published, the intended install is:
-
-```bash
-pip install "modelpin[providers]"     # or: pipx install "modelpin[providers]"
-```
-
-The `providers` extra pulls in the `openai`, `google-genai`, and `anthropic` SDKs. The base install
-runs the offline `fake` path with no provider SDKs at all.
 
 ---
 
@@ -319,18 +321,18 @@ is what keeps the false-positive promise honest and the tool small enough to tru
   observed…"* — **never** "Model X is worse." The harness and scenarios are open source so anyone
   can rerun and disagree. That's the whole point of being the independent voice.
 - We don't overclaim and we don't falsely undersell. The engine is real and cross-vendor proven;
-  *and* Anthropic is a stub, `mp report` isn't built, the judge calibration is a documented first
-  pass, and it's pre-PyPI. All four are true at once.
+  *and* Anthropic is a stub, `mp report` isn't built, and the judge calibration is a documented
+  first pass. All true at once.
 
 ---
 
 ## Status
 
-**Phase 0 (core engine MVP) — essentially complete.** Live-validated cross-vendor (OpenAI ↔ Google
-↔ Groq/Llama); held-out false-positive rate **0/8**; multi-turn replay; a real GitHub Action;
-PyPI-ready packaging (0.1.0, builds a clean wheel, `mp` + `modelpin` entry points); 132 tests
-passing, `ruff` + `black` clean. Stubs/TODOs (Anthropic adapter, `mp report`) are called out above,
-and it is **not yet published** to PyPI or the GitHub Marketplace.
+**Phase 0 (core engine MVP) — essentially complete; v0.1.0 published on PyPI.** Live-validated
+cross-vendor (OpenAI ↔ Google ↔ Groq/Llama); held-out false-positive rate **0/8**; multi-turn
+replay; a real GitHub Action; `pip install "modelpin[providers]"`; 132 tests passing, `ruff` +
+`black` clean. Stubs/TODOs (Anthropic adapter, `mp report`) are called out above. Not yet listed
+on the GitHub Marketplace.
 
 The full engineering record and roadmap live in [`docs/STATUS.md`](docs/STATUS.md). Next up:
 publish, the first public Modelpin Report (gated on a real model launch), and the Anthropic adapter.
