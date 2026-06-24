@@ -9,8 +9,20 @@
 OpenAI-compatible hosts (Groq/Llama, live), Google/Gemini adapter (live cross-vendor),
 Anthropic stub; semantic LLM-judge (calibrated → CI-failing regression); multi-turn replay;
 8-scenario eval suite (`examples/suite/`); FP-measurement + calibration harnesses; **real
-GitHub Action** (PR comment) + **PyPI-ready** packaging (0.1.0). **132 tests pass; ruff +
-black clean.**
+GitHub Action — dogfooded + validated LIVE on PR #2** (green check + sticky PR comment); **on
+PyPI** (`modelpin 0.1.0`; repo now at **0.1.1**, carrying the calm-header fix, ready to
+re-publish). **135 tests pass; ruff + black clean.**
+
+- **Action validated live (PR #2):** the dogfood workflow ran on GitHub infra → installed the
+  pkg, ran `mp check`, posted the **sticky PR comment**, set a **green** status. The dogfood
+  surfaced + fixed two real issues: (a) the PR-comment header was always 🚨 "model change
+  detected" even when unchanged → now ✅/⚠️/🚨 by actual outcome (`report/__init__.py`, +3 tests);
+  (b) `.modelpin/` was fully gitignored so the documented "commit your baseline" flow was broken
+  → now `.modelpin/*` + `!baseline-*.json`. Also bumped Action deps off Node-20
+  (`checkout@v7`, `setup-python@v6`, `github-script@v9`). The dogfood workflow is **manual**
+  (`workflow_dispatch`) so it doesn't spend API on every PR; the per-PR pattern for real apps is
+  in `examples/github-workflow.yml`. **These all live on branch `dogfood/modelpin-self-check`
+  (PR #2) — merge it to land them on main.**
 
 - **DoD met:** held-out FP rate = **0/8 = 0%** (judged), regressions detected. See
   [`fp-measurement.md`](fp-measurement.md).
@@ -45,12 +57,14 @@ Action** (PR comment via API)~~ ✅ + ~~**PyPI-ready packaging**~~ ✅ (builds a
 wheel; root `action.yml` posts a sticky PR comment + fails on regression; see
 `docs/PUBLISHING.md`). (4) ~~**publish to PyPI**~~ ✅ **LIVE: `modelpin 0.1.0` on PyPI**
 (`pip install "modelpin[providers]"`; wheel + sdist; verified via pypi.org/pypi/modelpin/json).
-**Next:** (5) **tag the release** (`git tag v0.1.0 && git tag v1 && git push --tags`) so the
-Action's `@v1` ref resolves — ideally merge PR #1 → main first and tag on main; (6) **live dogfood**
-the Action (secrets + a PR → sticky comment); (7) GitHub **Marketplace** listing (`action.yml` is now
-at the repo root ✓ → ready to publish on a tagged release); (8) **Modelpin Report #1** (gated on a
-real model launch); (9) Anthropic adapter (later; paid key); retire stale `regression_threshold`;
-subset/superset + cost/latency in the verdict. Full list below.
+(5) ~~**live dogfood** the Action~~ ✅ validated on PR #2 (green + sticky comment; OPENAI_API_KEY
+secret set via gh). **Next:** (6) **merge PR #2** → main (lands the header fix, gitignore fix,
+dogfood workflow, v0.1.1) — rebase-and-merge to keep the commits; (7) **re-publish 0.1.1** to PyPI
+(`python -m build` → `twine upload dist/*`) so the published wheel includes the calm-header fix;
+(8) **tag** `v0.1.1` + `v1` on main and `git push --tags` so the Action's `@v1` ref resolves;
+(9) GitHub **Marketplace** listing (root `action.yml` ✓ → publish from the tagged release);
+(10) **Modelpin Report #1** (gated on a real model launch); (11) Anthropic adapter (later; paid
+key); retire stale `regression_threshold`; subset/superset + cost/latency in the verdict.
 
 **Windows gotcha (durable):** `mp` is a built-in **PowerShell** alias for `Move-ItemProperty`, so
 `mp <cmd>` runs the alias, not the CLI. Use `modelpin <cmd>` (or `mp.exe`, or `Remove-Item Alias:mp`).
