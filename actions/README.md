@@ -34,7 +34,7 @@ see the project's `docs/`). Modelpin never ships or stores keys.
        runs-on: ubuntu-latest
        steps:
          - uses: actions/checkout@v4
-         - uses: samarthputhraya/modelpin/actions@v1     # this action (pin to a tag)
+         - uses: samarthputhraya/modelpin@v1     # this action (pin to a tag)
            with:
              from: gpt-4o-mini             # your committed baseline model
              to: gpt-5.5                    # the new model to test

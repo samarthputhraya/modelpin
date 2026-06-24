@@ -121,7 +121,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: samarthputhraya/modelpin/actions@v1
+      - uses: samarthputhraya/modelpin@v1
         with:
           from: gpt-4o-mini       # the model you depend on today (committed baseline)
           to: gpt-5.5             # the candidate to vet before adopting
