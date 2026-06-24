@@ -39,7 +39,7 @@ release (keep them in sync), tag it (`git tag v0.1.0 && git push --tags`), then 
 The action lives in `actions/` (`action.yml` + `README.md`).
 
 - **Before PyPI:** consumers set
-  `modelpin-spec: "modelpin[providers] @ git+https://github.com/OWNER/REPO@TAG"`.
+  `modelpin-spec: "modelpin[providers] @ git+https://github.com/samarthputhraya/modelpin@TAG"`.
 - **After PyPI:** the default `modelpin-spec: modelpin[providers]` just works.
 
 To publish to the **GitHub Marketplace**: push a tag (e.g. `v1`), open the tag/release on
@@ -50,8 +50,8 @@ consumers who pin to the major.
 ## 3. Checklist before the first public release
 
 - [ ] `README.md` quickstart is accurate (install, `mp init/baseline/check`, the Action).
-- [ ] Repo URL in `pyproject.toml` `[project.urls]` matches the real repo (currently a
-      placeholder `github.com/modelpin/modelpin`).
+- [ ] Repo URL in `pyproject.toml` `[project.urls]` is github.com/samarthputhraya/modelpin ✓
+      — verify the `Homepage = https://modelpin.dev` resolves (you own it) or point it at the repo.
 - [ ] `LICENSE` present (Apache-2.0 ✓).
 - [ ] `version` synced in `pyproject.toml` + `modelpin/__init__.py`.
 - [ ] A green CI run of the Action against a real model (dogfood on this repo's examples).

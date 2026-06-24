@@ -34,7 +34,7 @@ see the project's `docs/`). Modelpin never ships or stores keys.
        runs-on: ubuntu-latest
        steps:
          - uses: actions/checkout@v4
-         - uses: OWNER/REPO/actions@v1     # this action (pin to a tag)
+         - uses: samarthputhraya/modelpin/actions@v1     # this action (pin to a tag)
            with:
              from: gpt-4o-mini             # your committed baseline model
              to: gpt-5.5                    # the new model to test
@@ -100,4 +100,4 @@ A free Groq/Llama key (`GROQ_API_KEY`) makes a zero-cost third vendor.
   is the migration-true flow — the new model is diffed against known-good behavior. Use
   `baseline: true` only when the old model is still callable in CI.
 - **Pre-PyPI:** until `modelpin` is on PyPI, set
-  `modelpin-spec: "modelpin[providers] @ git+https://github.com/OWNER/REPO@TAG"`.
+  `modelpin-spec: "modelpin[providers] @ git+https://github.com/samarthputhraya/modelpin@TAG"`.
