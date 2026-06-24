@@ -6,22 +6,40 @@
 ## ▶ Resume here (latest — 2026-06-24)
 
 **Phase 0 is essentially complete.** Built, tested, and pushed: OpenAI adapter (live),
-Google/Gemini adapter (live-validated, cross-vendor), Anthropic stub; semantic LLM-judge;
-multi-turn replay (agent trajectories); 8-scenario eval suite (`examples/suite/`);
-FP-measurement harness. **123 tests pass; ruff + black clean.**
+Google/Gemini adapter (live-validated, full 8-scenario cross-vendor), Anthropic stub;
+semantic LLM-judge; multi-turn replay (agent trajectories); 8-scenario eval suite
+(`examples/suite/`); FP-measurement harness. **127 tests pass; ruff + black clean.**
 
 - **DoD met:** held-out FP rate = **0/8 = 0%** (judged), regressions detected. See
   [`fp-measurement.md`](fp-measurement.md).
-- **Cross-vendor proven:** `mp check` gpt-4o-mini → gemini-2.5-flash-lite → "unchanged".
-- **Git:** branch `feat/openai-adapter-live-path-hardening`, **PR #1**, all pushed
-  (latest `3c29d19`), working tree clean. (Note: the "Where we are (main)" section below
-  is the *original* kickoff state — this block is the current truth.)
+- **Full 8-scenario cross-vendor DONE:** `mp check` gpt-4o-mini → **`gemini-3.1-flash-lite`**,
+  5 runs × 8 scenarios, OpenAI judge on → **8/8 unchanged @ confidence 1.00**
+  (tool-call match 1.00, semantic equivalence 1.00, refusal delta 0.00 on every scenario).
+  The cross-vendor judge genuinely fired and found the two vendors behaviorally equivalent
+  on the held-out suite. Paced at ≤14 Gemini calls/min (under the 15 RPM cap); one transient
+  429 was absorbed by backoff. (Earlier smoke: gpt-4o-mini → gemini-2.5-flash-lite, 2 scn.)
+- **Two live-surfaced bugs found + fixed (both Gemini-3.x tool-loop):**
+  1. *Tool loop aborted on a `400`* — Gemini 3.x requires the opaque `thought_signature`
+     (and function-call `id`) to be **echoed back** when a call is fed into the next turn;
+     the adapter rebuilt the model turn from scratch and dropped them. Fixed in
+     `providers/google.py` `_model_turn_content` (preserve both; omit when absent so the
+     2.5 path is unaffected). 2.5 never required this — pure cross-version drift.
+  2. *`mp baseline --provider google` crashed on persist* — the (now-preserved) signature
+     is raw, non-UTF-8 **bytes** living in `Trace.messages`, which `save_baseline`'s
+     `model_dump(mode="json")` couldn't serialize (`UnicodeDecodeError`). Fixed at the model
+     boundary (`models.py`): a `field_serializer` base64-encodes any bytes in `messages` on
+     dump (round-trips losslessly); in-memory stays raw bytes for the SDK feed-back.
+  Both are regression-tested (mutation-verified to have teeth) + live-proven end-to-end.
+  An adversarial review workflow also hardened the OpenAI adapter's `tool_call_id` echo test.
+- **Git:** branch `feat/openai-adapter-live-path-hardening`, **PR #1**. Working tree has the
+  above fixes **uncommitted** (5 files: `models.py`, `providers/google.py`, +3 tests).
+  (Note: the "Where we are (main)" section below is the *original* kickoff state.)
 
-**Immediate next steps:** (1) full 8-scenario cross-vendor on **`gemini-3.1-flash-lite`
-(15 RPM)** or paced runs; (2) **calibrate** `MIN_*`/`ALPHA` thresholds on real traces —
-gates promoting the semantic judge from `changed_minor` to a CI-failing `regression`.
-(Then: retire stale `regression_threshold`; subset/superset + cost/latency in the verdict;
-GitHub Action.) Full priority list in "Next steps" below.
+**Immediate next steps:** (1) ~~full 8-scenario cross-vendor on `gemini-3.1-flash-lite`~~ ✅
+DONE (above). (2) **calibrate** `MIN_*`/`ALPHA` thresholds on real traces — gates promoting
+the semantic judge from `changed_minor` to a CI-failing `regression`. (Then: retire stale
+`regression_threshold`; subset/superset + cost/latency in the verdict; GitHub Action.)
+Full priority list in "Next steps" below.
 
 **How to run live in this environment** (corporate proxy + BYO-key):
 - Keys are in `.env.local` (gitignored): line 1 = raw OpenAI key (`sk-…`), a
@@ -148,14 +166,21 @@ pairs → false-alarm rate; a known-regression pair → confirmed detection) and
    `refund_request` produced the full `lookup_order → issue_refund` trajectory and the
    final answer consumed the canned tool data, confirming the `function_response`
    (role="user") feedback is correct. Cross-vendor checks use an OpenAI judge (provider
-   inferred from `judge_model`). **✅ First cross-vendor run completed:**
-   `mp check --provider google --to gemini-2.5-flash-lite --from gpt-4o-mini` over 2 suite
-   scenarios → both **unchanged** (the OpenAI judge found gpt-4o-mini and
-   gemini-2.5-flash-lite behaviorally equivalent — "safe to adopt"). The full gpt-vs-gemini
-   8-scenario run is limited only by Gemini **free-tier RPM** (per AI Studio: 2.0-flash =
-   0 RPM/unavailable, 2.5-flash = 5 RPM, **2.5-flash-lite = 10 RPM, 3.1-flash-lite = 15
-   RPM**) — use a higher-RPM model + small/paced runs, or enable billing; 503s are
-   transient Google capacity (clear on retry). **Anthropic** stays a $0 stub until an
+   inferred from `judge_model`). **✅ FULL 8-scenario cross-vendor run completed:**
+   `mp check --provider google --from gpt-4o-mini --to gemini-3.1-flash-lite` over all 8
+   suite scenarios ×5 runs, judge on → **8/8 unchanged @ conf 1.00** (tool-call match 1.00,
+   semantic equivalence 1.00, refusal delta 0.00 on every scenario; token deltas small/jittery
+   and correctly non-gating). The OpenAI judge found gpt-4o-mini and gemini-3.1-flash-lite
+   behaviorally equivalent on the held-out suite — "safe to adopt". (Earlier: a 2-scenario
+   smoke vs gemini-2.5-flash-lite.) Run paced at ≤14 Gemini calls/min (under the 15 RPM cap);
+   60 Gemini calls total, one transient 429 absorbed by backoff. **Two Gemini-3.x tool-loop
+   bugs were surfaced + fixed during this run** — (a) `thought_signature`/`id` must be echoed
+   back in the loop (else a `400`); (b) those raw signature bytes then crashed
+   `mp baseline`'s JSON persist — see the "Two live-surfaced bugs" note in ▶ Resume here.
+   The full run is otherwise limited only by Gemini **free-tier RPM** (per AI Studio:
+   2.0-flash = 0 RPM/unavailable, 2.5-flash = 5 RPM, **2.5-flash-lite = 10 RPM,
+   3.1-flash-lite = 15 RPM**) — use a higher-RPM model + small/paced runs, or enable billing;
+   503s are transient Google capacity (clear on retry). **Anthropic** stays a $0 stub until an
    `ANTHROPIC_API_KEY` appears.
 7. **Corporate-proxy TLS:** the FP harness opts into `truststore.inject_into_ssl()`; still
    worth a built-in opt-in at CLI startup so devs behind an intercepting proxy don't hit a
