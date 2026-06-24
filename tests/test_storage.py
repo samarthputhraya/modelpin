@@ -24,6 +24,32 @@ def test_save_then_load_roundtrip(tmp_path):
     assert loaded["s1"][0].tool_calls[0].name == "t"
 
 
+def test_baseline_with_gemini_signature_bytes_persists(tmp_path):
+    # A live Gemini 3.x tool loop stashes opaque, non-UTF-8 `thought_signature` bytes in
+    # Trace.messages (they must stay raw in-memory to feed back to the SDK). Persisting
+    # such a baseline must not crash on JSON serialization — the regression that aborted
+    # `mp baseline --provider google --model gemini-3.1-flash-lite` on agent scenarios.
+    import base64
+
+    sig = b"\xd6\x00\xff opaque-thought-sig"
+    trace = Trace(
+        scenario_id="s1",
+        model_id="gemini-3.1-flash-lite",
+        messages=[
+            {
+                "role": "model",
+                "parts": [{"function_call": {"name": "f", "args": {}}, "thought_signature": sig}],
+            }
+        ],
+    )
+    save_baseline({"s1": [trace]}, "gemini-3.1-flash-lite", tmp_path)
+    loaded = load_baseline("gemini-3.1-flash-lite", tmp_path)
+    stored = loaded["s1"][0].messages[0]["parts"][0]["thought_signature"]
+    assert base64.b64decode(stored) == sig  # round-trips losslessly (base64 on disk)
+    # the in-memory live object keeps the raw bytes — SDK feed-back is unaffected
+    assert trace.messages[0]["parts"][0]["thought_signature"] == sig
+
+
 def test_save_is_atomic_no_tmp_left_behind(tmp_path):
     path = save_baseline(_traces(), "gpt-4o-mini", tmp_path)
     assert path.exists()

@@ -18,8 +18,12 @@ from modelpin.providers.google import GoogleAdapter
 # --- fakes mirroring the google-genai response shape ------------------------------
 
 
-def _fn_part(name, args):
-    return SimpleNamespace(text=None, function_call=SimpleNamespace(name=name, args=args))
+def _fn_part(name, args, *, thought_signature=None, call_id=None):
+    return SimpleNamespace(
+        text=None,
+        function_call=SimpleNamespace(name=name, args=args, id=call_id),
+        thought_signature=thought_signature,
+    )
 
 
 def _text_part(text):
@@ -106,6 +110,54 @@ def test_multi_step_trajectory_emerges():
         any("function_response" in p for p in m.get("parts", []) if isinstance(p, dict))
         for m in trace.messages
     )
+
+
+def test_thought_signature_and_call_id_echoed_back_in_tool_loop():
+    # Gemini 3.x rejects a fed-back function call whose opaque `thought_signature` was
+    # dropped ("Function call is missing a thought_signature in functionCall parts"),
+    # which aborted a live gemini-3.1-flash-lite run. The model turn we append on the
+    # next loop iteration must carry the signature (and the call id) verbatim.
+    sig = b"\x00opaque-thought-sig\xff"
+    turn1 = _response(
+        [_fn_part("lookup_order", {"order_id": "A-1042"}, thought_signature=sig, call_id="c-1")]
+    )
+    final = _response([_text_part("Your order shipped.")])
+    client = FakeClient([turn1, final])
+    scenario = _scenario(
+        tools=["lookup_order"], tool_results={"lookup_order": {"status": "shipped"}}
+    )
+    trace = GoogleAdapter(client=client).run(scenario, "gemini-3.1-flash-lite")
+
+    model_turns = [
+        m
+        for m in trace.messages
+        if m.get("role") == "model"
+        and any(isinstance(p, dict) and "function_call" in p for p in m.get("parts", []))
+    ]
+    assert model_turns, "the model's function-call turn must be appended for the tool loop"
+    fc_part = next(p for p in model_turns[0]["parts"] if "function_call" in p)
+    assert fc_part["thought_signature"] == sig  # echoed back verbatim (Gemini 3.x requirement)
+    assert fc_part["function_call"]["id"] == "c-1"  # call id preserved for correlation
+
+
+def test_missing_thought_signature_is_omitted_not_none():
+    # Earlier (2.5) models don't emit a thought_signature; we must not inject a null key
+    # (the SDK would reject `thought_signature: None`), so the key is simply absent.
+    turn1 = _response([_fn_part("lookup_order", {})])  # no signature, no id
+    final = _response([_text_part("done")])
+    client = FakeClient([turn1, final])
+    scenario = _scenario(tools=["lookup_order"])
+    trace = GoogleAdapter(client=client).run(scenario, "gemini-2.5-flash")
+
+    fc_part = next(
+        p
+        for m in trace.messages
+        if m.get("role") == "model"
+        for p in m.get("parts", [])
+        if isinstance(p, dict) and "function_call" in p
+    )
+    assert "thought_signature" not in fc_part
+    assert "id" not in fc_part["function_call"]
 
 
 def test_refusal_via_safety_finish_reason():

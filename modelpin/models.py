@@ -2,15 +2,33 @@
 
 from __future__ import annotations
 
+import base64
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Literal, Optional
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_serializer, model_validator
 
 
 def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def _json_safe_bytes(obj: Any) -> Any:
+    """Recursively base64-encode any ``bytes`` so a Trace serializes to JSON.
+
+    Provider tool-loops can stash opaque binary metadata in ``Trace.messages`` (e.g.
+    Gemini 3.x ``thought_signature`` bytes, which must stay raw in-memory to feed back to
+    the SDK). Those bytes are rarely valid UTF-8, so ``model_dump(mode="json")`` — used
+    when persisting a baseline — would otherwise raise ``UnicodeDecodeError``.
+    """
+    if isinstance(obj, bytes):
+        return base64.b64encode(obj).decode("ascii")
+    if isinstance(obj, dict):
+        return {k: _json_safe_bytes(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_json_safe_bytes(v) for v in obj]
+    return obj
 
 
 class ModelStatus(str, Enum):
@@ -83,6 +101,11 @@ class Trace(BaseModel):
     tokens_out: int = 0
     latency_ms: float = 0.0
     ts: datetime = Field(default_factory=_utcnow)
+
+    @field_serializer("messages")
+    def _serialize_messages(self, messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Keep opaque provider bytes (e.g. Gemini ``thought_signature``) JSON-safe on dump."""
+        return [_json_safe_bytes(m) for m in messages]
 
 
 class Baseline(BaseModel):
