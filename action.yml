@@ -78,7 +78,7 @@ runs:
   using: "composite"
   steps:
     - name: Set up Python
-      uses: actions/setup-python@v5
+      uses: actions/setup-python@v6
       with:
         python-version: ${{ inputs.python-version }}
 
@@ -119,7 +119,7 @@ runs:
 
     - name: Post PR comment
       if: ${{ inputs.comment == 'true' && github.event.pull_request.number }}
-      uses: actions/github-script@v7
+      uses: actions/github-script@v9
       with:
         github-token: ${{ inputs.github-token }}
         script: |

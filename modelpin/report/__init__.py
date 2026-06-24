@@ -33,10 +33,18 @@ def _bucket(
 
 
 def render_pr_comment(results: list[DiffResult], from_model: str, to_model: str, runs: int) -> str:
-    """The Markdown PR comment (spec section 7)."""
+    """The Markdown PR comment (spec section 7). The header reflects the actual outcome —
+    only a real regression leads with 🚨, so an all-unchanged result reads calm/green and
+    doesn't contradict its own "safe to adopt" line."""
     regs, minors, unchanged = _bucket(results)
+    if regs:
+        header = f"\U0001f6a8 **Modelpin: behavioral regression — `{from_model}` → `{to_model}`**"
+    elif minors:
+        header = f"⚠️ **Modelpin: minor changes — `{from_model}` → `{to_model}`**"
+    else:
+        header = f"✅ **Modelpin: no behavioral change — `{from_model}` → `{to_model}`**"
     lines = [
-        f"\U0001f6a8 **Modelpin: model change detected — `{from_model}` → `{to_model}`**",
+        header,
         f"Replayed {len(results)} scenario(s) ×{runs} runs using your API key.",
         "",
     ]
