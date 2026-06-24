@@ -22,10 +22,16 @@ REFUSAL_MARKERS: tuple[str, ...] = (
     "i'm sorry, but i can",
 )
 
-#: Key-shaped tokens to redact from ANY text before it is shown or logged: OpenAI keys
-#: (``sk-``/``sk-proj-``), Google API keys (``AIza...``), and raw ``Bearer`` headers.
+#: Key-shaped tokens to redact from ANY text before it is shown or logged. Covers OpenAI
+#: keys (``sk-``/``sk-proj-``), Google credentials in their several prefixes (``AIza...``
+#: API keys, ``ya29.`` / ``AQ.`` OAuth-style tokens), and raw ``Bearer`` headers.
 _SECRET_RE = re.compile(
-    r"sk-[A-Za-z0-9_\-]{4,}|AIza[0-9A-Za-z_\-]{10,}|Bearer\s+\S+", re.IGNORECASE
+    r"sk-[A-Za-z0-9_\-]{4,}"
+    r"|AIza[0-9A-Za-z_\-]{10,}"
+    r"|ya29\.[A-Za-z0-9_.\-]{10,}"
+    r"|AQ\.[A-Za-z0-9_.\-]{10,}"
+    r"|Bearer\s+\S+",
+    re.IGNORECASE,
 )
 
 
