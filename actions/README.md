@@ -99,5 +99,6 @@ A free Groq/Llama key (`GROQ_API_KEY`) makes a zero-cost third vendor.
 - **Baseline strategy:** committing the baseline (recorded while the old model still worked)
   is the migration-true flow — the new model is diffed against known-good behavior. Use
   `baseline: true` only when the old model is still callable in CI.
-- **Pre-PyPI:** until `modelpin` is on PyPI, set
-  `modelpin-spec: "modelpin[providers] @ git+https://github.com/samarthputhraya/modelpin@TAG"`.
+- **Version pinning:** `modelpin` is on PyPI, so the default `modelpin-spec: modelpin[providers]`
+  works. Pin a release with `modelpin-spec: "modelpin[providers]==0.1.0"`, or install an unreleased
+  commit with `"modelpin[providers] @ git+https://github.com/samarthputhraya/modelpin@TAG"`.
