@@ -1,0 +1,11 @@
+{
+  "id": "define_term",
+  "name": "Definition with a correct meaning (semantic discriminator)",
+  "kind": "single",
+  "input": {
+    "messages": [
+      {"role": "user", "content": "In one sentence, what does 'idempotent' mean for an API endpoint?"}
+    ],
+    "temperature": 0.7
+  }
+}

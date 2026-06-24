@@ -1,0 +1,11 @@
+{
+  "id": "unit_answer",
+  "name": "Arithmetic with a single correct value (semantic discriminator)",
+  "kind": "single",
+  "input": {
+    "messages": [
+      {"role": "user", "content": "How many minutes are there in 2.5 hours? Reply with just the number and the unit."}
+    ],
+    "temperature": 0.7
+  }
+}

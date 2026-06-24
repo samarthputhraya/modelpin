@@ -1,0 +1,11 @@
+{
+  "id": "classify_topic",
+  "name": "One-word topic classification (semantic discriminator)",
+  "kind": "single",
+  "input": {
+    "messages": [
+      {"role": "user", "content": "Classify the topic of this text in one word: 'The central bank raised its benchmark interest rate by a quarter point to curb inflation.'"}
+    ],
+    "temperature": 0.7
+  }
+}

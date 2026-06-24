@@ -223,14 +223,20 @@ def test_no_judge_leaves_semantic_signal_unevaluated():
     assert r.verdict == DiffVerdict.unchanged  # structural-only sees identical (empty) tools
 
 
-def test_consistent_semantic_drift_is_changed_minor():
+def test_consistent_semantic_drift_is_regression():
+    # Calibrated promotion (examples/calibration/): a consistent meaning change beyond the
+    # baseline's spread is a hard, CI-failing regression, not merely changed_minor. The
+    # labeled sweep showed real meaning changes land at delta >= 0.8 vs equivalent at 0.0,
+    # so this fires with margin and 0 false positives on the reworded-but-equivalent cases
+    # guarded by the tests below.
     judge = _FakeJudge(lambda r, c: False)  # candidate consistently means something else
     base = out_runs(["Your refund was approved."] * RUNS)
     cand = out_runs(["I cannot process that.", "Denied.", "No refund.", "Rejected.", "Nope."])
     r = diff_scenario("s", "old", "new", base, cand, judge=judge)
-    assert r.verdict == DiffVerdict.changed_minor
+    assert r.verdict == DiffVerdict.regression
     assert r.signals.semantic_score == 0.0
     assert "semantic" in r.explanation.lower()
+    assert r.confidence >= 0.9  # small p on a consistent 5/5 divergence -> high confidence
 
 
 def test_reworded_but_equivalent_output_is_not_flagged():

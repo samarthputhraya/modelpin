@@ -1,0 +1,11 @@
+{
+  "id": "reco_decision",
+  "name": "Recommendation: keep or cut a feature (semantic discriminator)",
+  "kind": "single",
+  "input": {
+    "messages": [
+      {"role": "user", "content": "A feature is used by 0.2% of users and causes 40% of support tickets. In one short sentence, should the team keep it or remove it, and why?"}
+    ],
+    "temperature": 0.7
+  }
+}

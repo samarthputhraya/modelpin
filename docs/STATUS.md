@@ -36,10 +36,28 @@ semantic LLM-judge; multi-turn replay (agent trajectories); 8-scenario eval suit
   (Note: the "Where we are (main)" section below is the *original* kickoff state.)
 
 **Immediate next steps:** (1) ~~full 8-scenario cross-vendor on `gemini-3.1-flash-lite`~~ ✅
-DONE (above). (2) **calibrate** `MIN_*`/`ALPHA` thresholds on real traces — gates promoting
-the semantic judge from `changed_minor` to a CI-failing `regression`. (Then: retire stale
-`regression_threshold`; subset/superset + cost/latency in the verdict; GitHub Action.)
-Full priority list in "Next steps" below.
+DONE. (2) ~~**calibrate** the semantic threshold + promote the judge to a CI-failing
+`regression`~~ ✅ DONE (see "Semantic-judge calibration" below + `docs/fp-measurement.md`).
+**Next:** (3) **Anthropic adapter** (true 3-vendor; needs an `ANTHROPIC_API_KEY`); (4) retire
+stale `regression_threshold`; subset/superset + cost/latency in the verdict; (5) real GitHub
+Action (PR comment via API). Full priority list in "Next steps" below.
+
+**Semantic-judge calibration & promotion (DONE 2026-06-24).** Built a labeled calibration set
+[`examples/calibration/`](../examples/calibration/) — **distinct from the held-out suite** so it
+doesn't leak into the 0/8 claim — + harness `scripts/calibrate_thresholds.py`. Result: at
+`MIN_SEMANTIC_DELTA=0.5`/`ALPHA=0.05` the semantic signal cleanly separates equivalent (delta 0.0)
+from real meaning changes (delta ≥0.8) with **0 false positives**, so a consistent semantic
+divergence is now a **CI-failing `regression`** (was capped at `changed_minor`). FP-safety
+confirmed across **3 independent conditions**: self-judge calibration (0/6), **independent-judge**
+calibration (gpt-3.5-turbo candidate ⊥ gpt-4o-mini judge → 0/6 at the floor; the run of record),
+and the **post-promotion held-out re-validation** (`fp_measurement.py`, semantic→regression live →
+**still 0/8**, detection improved). An adversarial audit (`backtest-honesty-checker`) flagged
+self-judging circularity (→ defused by the independent-judge run), small N, and synthetic
+perturbations; its KEEP verdict was conditioned on the evidence being committed — it is
+(`examples/calibration/results/`). **Limitations (documented, not oversold):** N=6+6, synthetic
+perturbations, recall 4/6 on subtle changes (the safe direction — a miss is a false *negative*),
+OpenAI-only judge. **Future:** ≥30 pairs incl. real migration traces + a non-OpenAI judge before
+high-stakes reliance. **127 tests pass; ruff + black clean** (uncommitted at time of writing).
 
 **How to run live in this environment** (corporate proxy + BYO-key):
 - Keys are in `.env.local` (gitignored): line 1 = raw OpenAI key (`sk-…`), a
@@ -155,9 +173,16 @@ pairs → false-alarm rate; a known-regression pair → confirmed detection) and
    injection was resisted by the model (still declined) so `unchanged` was correct — not a
    false negative. Corroborated by 0/4 (golden), 0/6 (real same-model split-half), 0/3
    (real cross-model). Full writeup in [`docs/fp-measurement.md`](fp-measurement.md).
-5. **Calibrate the diff thresholds** (`MIN_TOOL_TVD`, `MIN_REFUSAL_DELTA`, `ALPHA`,
-   `MIN_SEMANTIC_DELTA`) on the real traces — replaces today's uncalibrated defaults; gates
-   promoting the semantic judge from `changed_minor` to `regression`.
+5. **Calibrate the diff thresholds — ✅ DONE for the SEMANTIC floor (judge promoted).**
+   `MIN_SEMANTIC_DELTA=0.5` is now calibrated on [`examples/calibration/`](../examples/calibration/)
+   (labeled set, distinct from the held-out suite) + harness `scripts/calibrate_thresholds.py`,
+   and a consistent semantic divergence now escalates to a **CI-failing `regression`** (was
+   `changed_minor`). Validated FP-safe across self-judge, independent-judge, and post-promotion
+   held-out (0/8) runs; adversarially audited. See "Semantic-judge calibration" in ▶ Resume here
+   + [`docs/fp-measurement.md`](fp-measurement.md). **Still TODO:** the structural floors
+   (`MIN_TOOL_TVD`, `MIN_REFUSAL_DELTA`, `ALPHA`) are FP-validated by the held-out suite but not
+   yet swept on a labeled set; and expand the semantic calibration set (≥30 pairs, real migration
+   traces, a non-OpenAI judge) before high-stakes reliance.
 6. **Google/Gemini adapter — ✅ DONE + LIVE-VALIDATED (cross-vendor unlocked).**
    `providers/google.py` via `google-genai` (SDK shapes verified live), BYO-key from
    `GEMINI_API_KEY`/`GOOGLE_API_KEY`, same multi-turn architecture, key-safe errors,

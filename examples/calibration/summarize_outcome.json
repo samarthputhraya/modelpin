@@ -1,0 +1,11 @@
+{
+  "id": "summarize_outcome",
+  "name": "Summarization with a definite outcome (semantic discriminator)",
+  "kind": "single",
+  "input": {
+    "messages": [
+      {"role": "user", "content": "Summarize the outcome in one short sentence: 'After review, the loan application was DENIED because the applicant's credit history was too short.'"}
+    ],
+    "temperature": 0.7
+  }
+}

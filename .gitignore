@@ -16,6 +16,10 @@ venv/
 # Local Modelpin state (recorded baselines + last rendered report)
 .modelpin/
 
+# Ad-hoc calibration re-run scratch output (committed evidence snapshots live in
+# examples/calibration/results/ instead — see that dir + docs/STATUS.md).
+scripts/_calibration_*.json
+
 # Windows reserved device name accidentally materialized by `>nul` redirects
 # under Git Bash (it's a real file there, not the null device). Never track it.
 nul
