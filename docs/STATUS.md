@@ -5,10 +5,12 @@
 
 ## ▶ Resume here (latest — 2026-06-24)
 
-**Phase 0 is essentially complete.** Built, tested, and pushed: OpenAI adapter (live),
-Google/Gemini adapter (live-validated, full 8-scenario cross-vendor), Anthropic stub;
-semantic LLM-judge; multi-turn replay (agent trajectories); 8-scenario eval suite
-(`examples/suite/`); FP-measurement harness. **127 tests pass; ruff + black clean.**
+**Phase 0 is essentially complete.** Built, tested, and pushed: OpenAI adapter (live) +
+OpenAI-compatible hosts (Groq/Llama, live), Google/Gemini adapter (live cross-vendor),
+Anthropic stub; semantic LLM-judge (calibrated → CI-failing regression); multi-turn replay;
+8-scenario eval suite (`examples/suite/`); FP-measurement + calibration harnesses; **real
+GitHub Action** (PR comment) + **PyPI-ready** packaging (0.1.0). **132 tests pass; ruff +
+black clean.**
 
 - **DoD met:** held-out FP rate = **0/8 = 0%** (judged), regressions detected. See
   [`fp-measurement.md`](fp-measurement.md).
@@ -31,16 +33,20 @@ semantic LLM-judge; multi-turn replay (agent trajectories); 8-scenario eval suit
      dump (round-trips losslessly); in-memory stays raw bytes for the SDK feed-back.
   Both are regression-tested (mutation-verified to have teeth) + live-proven end-to-end.
   An adversarial review workflow also hardened the OpenAI adapter's `tool_call_id` echo test.
-- **Git:** branch `feat/openai-adapter-live-path-hardening`, **PR #1**. Working tree has the
-  above fixes **uncommitted** (5 files: `models.py`, `providers/google.py`, +3 tests).
-  (Note: the "Where we are (main)" section below is the *original* kickoff state.)
+- **Git:** branch `feat/openai-adapter-live-path-hardening`, **PR #1**. This session's work is
+  **all committed** (Gemini tool-loop fixes; cross-vendor run records; semantic calibration +
+  judge promotion; OpenAI-compatible providers; GitHub Action + PyPI-ready packaging) — working
+  tree clean. (Note: the "Where we are (main)" section below is the *original* kickoff state.)
 
-**Immediate next steps:** (1) ~~full 8-scenario cross-vendor on `gemini-3.1-flash-lite`~~ ✅
-DONE. (2) ~~**calibrate** the semantic threshold + promote the judge to a CI-failing
-`regression`~~ ✅ DONE (see "Semantic-judge calibration" below + `docs/fp-measurement.md`).
-**Next:** (3) **Anthropic adapter** (true 3-vendor; needs an `ANTHROPIC_API_KEY`); (4) retire
-stale `regression_threshold`; subset/superset + cost/latency in the verdict; (5) real GitHub
-Action (PR comment via API). Full priority list in "Next steps" below.
+**Immediate next steps:** (1) ~~cross-vendor on `gemini-3.1-flash-lite`~~ ✅ + ~~free 3rd
+vendor (Groq/Llama)~~ ✅. (2) ~~**calibrate** the semantic threshold + promote the judge to a
+CI-failing `regression`~~ ✅ (see "Semantic-judge calibration" below). (3) ~~real **GitHub
+Action** (PR comment via API)~~ ✅ + ~~**PyPI-ready packaging**~~ ✅ (builds a clean 0.1.0
+wheel; `actions/action.yml` posts a sticky PR comment + fails on regression; see
+`docs/PUBLISHING.md`). **Next:** (4) **publish** to PyPI + GitHub Marketplace (needs the
+owner's tokens — steps in `docs/PUBLISHING.md`); (5) **Modelpin Report #1** (gated on a real
+model launch); (6) Anthropic adapter (later; needs a paid key); retire stale
+`regression_threshold`; subset/superset + cost/latency in the verdict. Full list below.
 
 **Semantic-judge calibration & promotion (DONE 2026-06-24).** Built a labeled calibration set
 [`examples/calibration/`](../examples/calibration/) — **distinct from the held-out suite** so it
@@ -79,8 +85,11 @@ serves Llama 3.x/4, tool calls). To use: get a free key at console.groq.com → 
 `mp check --provider groq --from gpt-4o-mini --to llama-3.3-70b-versatile --config <cfg>`
 (OpenAI judge arbitrates, same as the Gemini cross-vendor path). Caveat: open-model *hosts*
 don't retire on a lab's schedule like the big-3 do (they do rotate hosted ids), so this is a
-real bonus cross-vendor target + architecture proof, not the core migration wedge. Built +
-mock-tested; **live-validate once a free key is added** (none in `.env.local` yet).
+real bonus cross-vendor target + architecture proof, not the core migration wedge.
+**✅ LIVE-VALIDATED (2026-06-24):** full 8-scenario `gpt-4o-mini → llama-3.3-70b-versatile`
+(Groq) ×5 runs, OpenAI judge → **8/8 unchanged** (judge found the two vendors equivalent on
+the held-out suite). 56 Groq calls paced ≤24/min, 1 transient absorbed. **Three vendors now
+proven through one engine: OpenAI + Google + Groq/Llama.**
 
 ---
 
@@ -226,7 +235,15 @@ pairs → false-alarm rate; a known-regression pair → confirmed detection) and
    (gate via the permutation test; latency is jittery — handle carefully); an
    "inconclusive / underpowered → re-run" surface (spec §6C); wire `subset/superset`
    + `expected_tool_calls`/`output_schema` assertions into the verdict.
-9. **GitHub Action** polish (`actions/action.yml`) for CI usage.
+9. **GitHub Action — ✅ DONE (PR comment via API).** `actions/action.yml` is a real composite
+   action: install → (optional baseline) → `mp check` → **sticky PR comment** (find-or-update
+   via `actions/github-script`, marker `<!-- modelpin-report -->`, no spam) → **fail on
+   regression**. Inputs cover `to/from/provider/config/runs/match/comment/fail-on-regression/
+   modelpin-spec`; cross-vendor works (set `provider` + the right secret). Docs +
+   copy-pasteable workflow: `actions/README.md`, `examples/github-workflow.yml`. **PyPI-ready:**
+   `pyproject.toml` 0.1.0 + classifiers, builds a clean wheel with `mp`/`modelpin` entry points;
+   publish steps (owner's tokens) in `docs/PUBLISHING.md`. Remaining: the actual `twine upload`
+   + Marketplace publish + a green dogfood CI run.
 10. **Smaller audit items:** detector registry-validation (cut regex false positives);
    retire the now-stale `regression_threshold` config field; add the missing per-module
    tests for watcher/report. (Scenario-JSON error handling + config/cli tests: ✅ done.)
