@@ -18,9 +18,9 @@ from modelpin.providers.openai import OpenAIAdapter
 # --- fakes that mimic the openai SDK response shape -------------------------------
 
 
-def _fn_tool_call(name: str, arguments: str):
+def _fn_tool_call(name: str, arguments: str, call_id: str = "call_1"):
     return SimpleNamespace(
-        id="call_1", type="function", function=SimpleNamespace(name=name, arguments=arguments)
+        id=call_id, type="function", function=SimpleNamespace(name=name, arguments=arguments)
     )
 
 
@@ -130,6 +130,28 @@ def test_multi_step_agent_trajectory_emerges_across_turns():
     assert client.calls == 3  # two tool turns + the final answer
     # the fed-back tool result is in the conversation the trace records
     assert any(m.get("role") == "tool" for m in trace.messages)
+
+
+def test_tool_result_messages_echo_the_matching_tool_call_id():
+    """OpenAI returns a 400 if a role:tool message's tool_call_id doesn't match the id of
+    the assistant tool_call that triggered it. With two calls in one turn carrying DISTINCT
+    ids, each fed-back tool message must carry its own matching id (a regression that
+    collapsed every id to a constant would still pass the looser 'a tool message exists'
+    check, so assert the ids explicitly)."""
+    turn1 = _message(
+        None,
+        [
+            _fn_tool_call("lookup_order", "{}", call_id="call_abc"),
+            _fn_tool_call("check_stock", "{}", call_id="call_def"),
+        ],
+    )
+    client = FakeClient([_response(turn1, "tool_calls"), _response(_message("done"))])
+    scenario = _scenario(tools=["lookup_order", "check_stock"])
+    trace = OpenAIAdapter(client=client).run(scenario, "gpt-4o")
+
+    tool_msgs = [m for m in trace.messages if m.get("role") == "tool"]
+    ids = {m["tool_call_id"] for m in tool_msgs}
+    assert ids == {"call_abc", "call_def"}  # each call's own id, not a shared constant
 
 
 def test_tool_loop_is_capped_at_max_turns():

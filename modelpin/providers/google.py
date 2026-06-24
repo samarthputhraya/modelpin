@@ -158,12 +158,26 @@ def _detect_refusal(candidate: Any, prompt_feedback: Any, text: str) -> bool:
 
 
 def _model_turn_content(parts: list[Any], text: str) -> dict[str, Any]:
-    """Rebuild the model's turn (incl. function_call parts) to append to the conversation."""
+    """Rebuild the model's turn (incl. function_call parts) to append to the conversation.
+
+    Gemini 3.x rejects a fed-back function call whose opaque ``thought_signature`` was
+    dropped ("Function call is missing a thought_signature in functionCall parts"), so we
+    echo it (and the call ``id``) back verbatim on each reconstructed function-call part.
+    Earlier (2.5) models don't emit it; the field is simply absent there, so this is safe.
+    """
     out: list[dict[str, Any]] = []
     for part in parts:
         fc = getattr(part, "function_call", None)
         if getattr(fc, "name", None):
-            out.append({"function_call": {"name": fc.name, "args": getattr(fc, "args", {}) or {}}})
+            call: dict[str, Any] = {"name": fc.name, "args": getattr(fc, "args", {}) or {}}
+            fc_id = getattr(fc, "id", None)
+            if fc_id:
+                call["id"] = fc_id
+            fc_part: dict[str, Any] = {"function_call": call}
+            signature = getattr(part, "thought_signature", None)
+            if signature:
+                fc_part["thought_signature"] = signature
+            out.append(fc_part)
     if text:
         out.append({"text": text})
     return {"role": "model", "parts": out or [{"text": text}]}
