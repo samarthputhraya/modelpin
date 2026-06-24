@@ -5,13 +5,21 @@
 
 ## ▶ Resume here (latest — 2026-06-24)
 
-**Phase 0 is essentially complete.** Built, tested, and pushed: OpenAI adapter (live) +
-OpenAI-compatible hosts (Groq/Llama, live), Google/Gemini adapter (live cross-vendor),
-Anthropic stub; semantic LLM-judge (calibrated → CI-failing regression); multi-turn replay;
-8-scenario eval suite (`examples/suite/`); FP-measurement + calibration harnesses; **real
-GitHub Action — dogfooded + validated LIVE on PR #2** (green check + sticky PR comment); **on
-PyPI** (`modelpin 0.1.0`; repo now at **0.1.1**, carrying the calm-header fix, ready to
-re-publish). **135 tests pass; ruff + black clean.**
+**🚀 PHASE 0 COMPLETE + LAUNCHED.** `modelpin 0.1.1` is **LIVE on PyPI**
+(`pip install "modelpin[providers]"`); PR #1 + PR #2 merged to `main`; tags `v0.1.1` **and**
+`v1` both point to the 0.1.1 commit (`40cb86f`, which has the root `action.yml`), so
+`uses: samarthputhraya/modelpin@v1` resolves. Built + shipped: OpenAI adapter (live) +
+OpenAI-compatible hosts (Groq/Llama, live), Google/Gemini (live cross-vendor), Anthropic stub;
+semantic LLM-judge (calibrated → CI-failing regression); multi-turn replay; 8-scenario suite;
+FP + calibration harnesses; **real GitHub Action — dogfood-validated LIVE on PR #2** (green check
++ sticky PR comment). **135 tests pass; ruff + black clean.**
+
+- **What was necessary is DONE.** Sequence completed this session: cross-vendor (gemini-3.1 +
+  Groq/Llama) → semantic calibration + judge promotion → OpenAI-compatible providers → real
+  GitHub Action + PyPI packaging → published 0.1.0 → dogfood validated → fixed header + Node-24
+  action deps + gitignore → published **0.1.1** → tagged (fixed a stale `v1` that pointed at a
+  pre-`action.yml`-move commit; re-pointed `v1` → 0.1.1). **Remaining is all OPTIONAL** — see
+  "Remaining (optional)" at the end of this block.
 
 - **Action validated live (PR #2):** the dogfood workflow ran on GitHub infra → installed the
   pkg, ran `mp check`, posted the **sticky PR comment**, set a **green** status. The dogfood
@@ -45,26 +53,28 @@ re-publish). **135 tests pass; ruff + black clean.**
      dump (round-trips losslessly); in-memory stays raw bytes for the SDK feed-back.
   Both are regression-tested (mutation-verified to have teeth) + live-proven end-to-end.
   An adversarial review workflow also hardened the OpenAI adapter's `tool_call_id` echo test.
-- **Git:** branch `feat/openai-adapter-live-path-hardening`, **PR #1**. This session's work is
-  **all committed** (Gemini tool-loop fixes; cross-vendor run records; semantic calibration +
-  judge promotion; OpenAI-compatible providers; GitHub Action + PyPI-ready packaging) — working
-  tree clean. (Note: the "Where we are (main)" section below is the *original* kickoff state.)
+- **Git:** all work merged to **`main`** (PR #1 + PR #2). Tags `v0.1.1` + `v1` pushed (both →
+  `40cb86f`). Repo: github.com/samarthputhraya/modelpin. (Note: the "Where we are (main)" section
+  far below is the *original kickoff* state — superseded by this block.)
 
-**Immediate next steps:** (1) ~~cross-vendor on `gemini-3.1-flash-lite`~~ ✅ + ~~free 3rd
-vendor (Groq/Llama)~~ ✅. (2) ~~**calibrate** the semantic threshold + promote the judge to a
-CI-failing `regression`~~ ✅ (see "Semantic-judge calibration" below). (3) ~~real **GitHub
-Action** (PR comment via API)~~ ✅ + ~~**PyPI-ready packaging**~~ ✅ (builds a clean 0.1.0
-wheel; root `action.yml` posts a sticky PR comment + fails on regression; see
-`docs/PUBLISHING.md`). (4) ~~**publish to PyPI**~~ ✅ **LIVE: `modelpin 0.1.0` on PyPI**
-(`pip install "modelpin[providers]"`; wheel + sdist; verified via pypi.org/pypi/modelpin/json).
-(5) ~~**live dogfood** the Action~~ ✅ validated on PR #2 (green + sticky comment; OPENAI_API_KEY
-secret set via gh). **Next:** (6) **merge PR #2** → main (lands the header fix, gitignore fix,
-dogfood workflow, v0.1.1) — rebase-and-merge to keep the commits; (7) **re-publish 0.1.1** to PyPI
-(`python -m build` → `twine upload dist/*`) so the published wheel includes the calm-header fix;
-(8) **tag** `v0.1.1` + `v1` on main and `git push --tags` so the Action's `@v1` ref resolves;
-(9) GitHub **Marketplace** listing (root `action.yml` ✓ → publish from the tagged release);
-(10) **Modelpin Report #1** (gated on a real model launch); (11) Anthropic adapter (later; paid
-key); retire stale `regression_threshold`; subset/superset + cost/latency in the verdict.
+**Done this phase (all ✅):** cross-vendor on gemini-3.1-flash-lite + free Groq/Llama 3rd vendor →
+semantic-threshold calibration + judge promoted to CI-failing `regression` → OpenAI-compatible
+providers → real **GitHub Action** (sticky PR comment + fail-on-regression) + PyPI-ready packaging →
+**published `0.1.0` then `0.1.1`** → Action **dogfood-validated live** on PR #2 (green + sticky
+comment) → fixed the alarmist PR-header (now ✅/⚠️/🚨 by outcome) + bumped action deps to Node-24
+majors + fixed the `.modelpin/` gitignore (baselines are now committable) → **tagged `v0.1.1` + `v1`**
+(re-pointed a stale `v1`). The DoD (held-out FP 0/8) was met earlier this phase.
+
+**Remaining (ALL OPTIONAL — nothing blocking):**
+1. **GitHub Marketplace** listing — publish from the `v1` release page (root `action.yml` ✓; needs a
+   unique action name + accepting Marketplace terms).
+2. **CHANGELOG.md** + a `v0.1.1`/`v1` GitHub **release note**.
+3. **License-metadata cleanup** for the next version (silence setuptools deprecation):
+   `license = "Apache-2.0"` SPDX string, drop the `License ::` classifier, `setuptools>=77`.
+4. **Modelpin Report #1** — gated on a real provider model launch to write about (not engineering).
+5. **Anthropic adapter** (needs a paid `ANTHROPIC_API_KEY`); retire stale `regression_threshold`;
+   subset/superset + cost/latency into the verdict; expand the semantic calibration set (≥30 pairs,
+   real migration traces, a non-OpenAI judge) before high-stakes reliance.
 
 **Windows gotcha (durable):** `mp` is a built-in **PowerShell** alias for `Move-ItemProperty`, so
 `mp <cmd>` runs the alias, not the CLI. Use `modelpin <cmd>` (or `mp.exe`, or `Remove-Item Alias:mp`).
