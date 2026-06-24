@@ -57,7 +57,7 @@ perturbations; its KEEP verdict was conditioned on the evidence being committed 
 (`examples/calibration/results/`). **Limitations (documented, not oversold):** N=6+6, synthetic
 perturbations, recall 4/6 on subtle changes (the safe direction — a miss is a false *negative*),
 OpenAI-only judge. **Future:** ≥30 pairs incl. real migration traces + a non-OpenAI judge before
-high-stakes reliance. **127 tests pass; ruff + black clean** (uncommitted at time of writing).
+high-stakes reliance. Committed (`feat:`) — see git log.
 
 **How to run live in this environment** (corporate proxy + BYO-key):
 - Keys are in `.env.local` (gitignored): line 1 = raw OpenAI key (`sk-…`), a
@@ -69,6 +69,18 @@ high-stakes reliance. **127 tests pass; ruff + black clean** (uncommitted at tim
 - Gemini free-tier **RPM caps** (AI Studio → Rate Limit): 2.0-flash = 0 (unavailable),
   2.5-flash = 5, **2.5-flash-lite = 10, 3.1-flash-lite = 15**. Stay under them (small/paced
   runs); 429 = our rate, 503 = transient Google capacity (retry).
+
+**Free 3rd vendor via an OpenAI-compatible host (no paid key — Anthropic deferred).** The
+OpenAI adapter now takes a `base_url`, so free Llama hosts that speak the OpenAI Chat
+Completions API are first-class providers: `groq | openrouter | together | cerebras`
+(`providers/openai.py` `OPENAI_COMPATIBLE_PROVIDERS`). **Recommended: Groq** (free tier, fast,
+serves Llama 3.x/4, tool calls). To use: get a free key at console.groq.com → add
+`GROQ_API_KEY=…` to `.env.local`, then a 3-vendor check is e.g.
+`mp check --provider groq --from gpt-4o-mini --to llama-3.3-70b-versatile --config <cfg>`
+(OpenAI judge arbitrates, same as the Gemini cross-vendor path). Caveat: open-model *hosts*
+don't retire on a lab's schedule like the big-3 do (they do rotate hosted ids), so this is a
+real bonus cross-vendor target + architecture proof, not the core migration wedge. Built +
+mock-tested; **live-validate once a free key is added** (none in `.env.local` yet).
 
 ---
 

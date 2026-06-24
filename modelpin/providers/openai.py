@@ -48,30 +48,33 @@ _DEFAULT_TOOL_RESULT: dict[str, Any] = {"status": "ok"}
 #: Friendly, actionable hints per OpenAI SDK error class. Keyed by class name so we
 #: don't need to import the SDK's exception types at module scope.
 _API_ERROR_HINTS: dict[str, str] = {
-    "AuthenticationError": "your OPENAI_API_KEY was rejected (invalid or revoked)",
+    "AuthenticationError": "your API key was rejected (invalid or revoked)",
     "PermissionDeniedError": "your key lacks access to this model or resource",
     "NotFoundError": "the model id was not found — check it exists and you have access",
     "RateLimitError": "rate limit or quota exceeded — slow down or check billing",
     "BadRequestError": "the request was rejected (often an unsupported param for this model)",
-    "APITimeoutError": "the OpenAI request timed out",
-    "APIConnectionError": "could not reach OpenAI (network/connection error)",
-    "InternalServerError": "OpenAI returned a server error — retry later",
+    "APITimeoutError": "the request timed out",
+    "APIConnectionError": "could not reach the API endpoint (network/connection error)",
+    "InternalServerError": "the API returned a server error — retry later",
 }
 
 #: Errors whose message text may embed a redacted key fragment — don't echo it at all.
 _KEY_BEARING_ERRORS: frozenset[str] = frozenset({"AuthenticationError", "PermissionDeniedError"})
 
 
-def _explain_api_error(exc: Exception, model_id: str) -> str:
+def _explain_api_error(exc: Exception, model_id: str, label: str = "OpenAI") -> str:
     """Turn a raw SDK/network exception into a concise, key-safe message.
+
+    ``label`` names the provider (OpenAI, or an OpenAI-compatible host like Groq) so the
+    message is accurate when the same adapter drives a different endpoint.
 
     Default-deny on the secret surface: auth/permission errors drop their text
     entirely, and every other error's text is scrubbed of key-shaped tokens before
     it is interpolated — so a renamed/unlisted error class can't leak a key either.
     """
     name = type(exc).__name__
-    hint = _API_ERROR_HINTS.get(name, "the OpenAI API call failed")
-    base = f"OpenAI call for model {model_id!r} failed: {hint}"
+    hint = _API_ERROR_HINTS.get(name, "the API call failed")
+    base = f"{label} call for model {model_id!r} failed: {hint}"
     if name in _KEY_BEARING_ERRORS:
         return f"{base} [{name}]."
     detail = scrub_secrets(str(exc))[:300]
@@ -188,10 +191,12 @@ def _detect_refusal(message: Any, finish_reason: str | None, text: str) -> bool:
     return looks_like_refusal(text)
 
 
-def build_openai_client(api_key_env: str = "OPENAI_API_KEY") -> Any:
-    """Construct a real OpenAI client: validate the BYO-key, then lazily import the SDK.
+def build_openai_client(api_key_env: str = "OPENAI_API_KEY", base_url: str | None = None) -> Any:
+    """Construct a real OpenAI(-compatible) client: validate the BYO-key, lazily import the SDK.
 
     Shared by the adapter and the semantic judge so key/SDK handling lives in one place.
+    ``base_url`` points the SDK at an OpenAI-compatible endpoint (e.g. Groq/OpenRouter serving
+    Llama) — they implement the same Chat Completions surface, so the whole adapter is reused.
     Raises ``ProviderError`` (never a raw traceback) if the key or SDK is missing.
     """
     api_key = (os.environ.get(api_key_env) or "").strip()
@@ -206,16 +211,26 @@ def build_openai_client(api_key_env: str = "OPENAI_API_KEY") -> Any:
         raise ProviderError(
             "The OpenAI SDK is not installed. Install it with: pip install 'modelpin[providers]'"
         ) from exc
-    return OpenAI(api_key=api_key)
+    return OpenAI(api_key=api_key, base_url=base_url) if base_url else OpenAI(api_key=api_key)
 
 
 class OpenAIAdapter(ProviderAdapter):
     name = "openai"
 
-    def __init__(self, client: Any | None = None, api_key_env: str = "OPENAI_API_KEY") -> None:
+    def __init__(
+        self,
+        client: Any | None = None,
+        api_key_env: str = "OPENAI_API_KEY",
+        base_url: str | None = None,
+        label: str = "OpenAI",
+    ) -> None:
         # An injected client makes the adapter unit-testable with no network or key.
+        # base_url + api_key_env + label let this same adapter drive an OpenAI-compatible
+        # host (Groq, OpenRouter, ...) so a free Llama endpoint can be a cross-vendor target.
         self._client = client
         self._api_key_env = api_key_env
+        self._base_url = base_url
+        self._label = label
 
     def preflight(self) -> None:
         """Validate the key + SDK before any replay runs — no network call."""
@@ -223,7 +238,7 @@ class OpenAIAdapter(ProviderAdapter):
 
     def _get_client(self) -> Any:
         if self._client is None:
-            self._client = build_openai_client(self._api_key_env)
+            self._client = build_openai_client(self._api_key_env, self._base_url)
         return self._client
 
     def _complete(self, client: Any, request: dict[str, Any], scenario_id: str, model_id: str):
@@ -233,10 +248,10 @@ class OpenAIAdapter(ProviderAdapter):
         except ProviderError:
             raise
         except Exception as exc:  # SDK/network error → friendly, key-safe ProviderError
-            raise ProviderError(_explain_api_error(exc, model_id)) from exc
+            raise ProviderError(_explain_api_error(exc, model_id, self._label)) from exc
         if not (getattr(response, "choices", None) or []):
             raise ProviderError(
-                f"OpenAI returned no choices for scenario {scenario_id!r} on {model_id!r}."
+                f"{self._label} returned no choices for scenario {scenario_id!r} on {model_id!r}."
             )
         return response
 
@@ -297,3 +312,41 @@ def _message_dict(message: Any) -> dict[str, Any]:
     if callable(dump):
         return dump(exclude_none=True)
     return {"role": "assistant", "content": getattr(message, "content", "") or ""}
+
+
+#: OpenAI-compatible hosts reachable through this same adapter by pointing the SDK at a
+#: different ``base_url``: they implement the Chat Completions surface (incl. tool calls).
+#: BYO-key from the named env var. This makes a free Llama endpoint (e.g. Groq's free tier)
+#: usable as a cross-vendor target without a bespoke adapter. Note: open-model *hosts* don't
+#: retire models on a lab's schedule the way OpenAI/Anthropic/Google do, but they do rotate
+#: hosted model ids — so they're a real (bonus) cross-vendor target, not the core wedge.
+OPENAI_COMPATIBLE_PROVIDERS: dict[str, dict[str, str]] = {
+    "groq": {
+        "base_url": "https://api.groq.com/openai/v1",
+        "api_key_env": "GROQ_API_KEY",
+        "label": "Groq",
+    },
+    "openrouter": {
+        "base_url": "https://openrouter.ai/api/v1",
+        "api_key_env": "OPENROUTER_API_KEY",
+        "label": "OpenRouter",
+    },
+    "together": {
+        "base_url": "https://api.together.xyz/v1",
+        "api_key_env": "TOGETHER_API_KEY",
+        "label": "Together",
+    },
+    "cerebras": {
+        "base_url": "https://api.cerebras.ai/v1",
+        "api_key_env": "CEREBRAS_API_KEY",
+        "label": "Cerebras",
+    },
+}
+
+
+def build_openai_compatible_adapter(provider: str) -> OpenAIAdapter:
+    """Adapter for a known OpenAI-compatible host (Groq/OpenRouter/Together/Cerebras)."""
+    cfg = OPENAI_COMPATIBLE_PROVIDERS[provider]
+    return OpenAIAdapter(
+        api_key_env=cfg["api_key_env"], base_url=cfg["base_url"], label=cfg["label"]
+    )

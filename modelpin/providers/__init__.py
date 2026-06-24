@@ -30,4 +30,16 @@ def get_adapter(provider: str) -> ProviderAdapter:
         from modelpin.providers.anthropic import AnthropicAdapter
 
         return AnthropicAdapter()
-    raise ValueError(f"Unknown provider: {provider} (try: openai | google | anthropic | fake)")
+
+    # OpenAI-compatible hosts (Groq/OpenRouter/Together/Cerebras) — a free Llama endpoint
+    # can serve as a cross-vendor target through the reused OpenAI adapter (different base_url).
+    from modelpin.providers.openai import (
+        OPENAI_COMPATIBLE_PROVIDERS,
+        build_openai_compatible_adapter,
+    )
+
+    if provider in OPENAI_COMPATIBLE_PROVIDERS:
+        return build_openai_compatible_adapter(provider)
+
+    known = "openai | google | anthropic | " + " | ".join(OPENAI_COMPATIBLE_PROVIDERS) + " | fake"
+    raise ValueError(f"Unknown provider: {provider} (try: {known})")
