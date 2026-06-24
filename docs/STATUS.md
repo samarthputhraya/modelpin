@@ -96,13 +96,14 @@ pairs → false-alarm rate; a known-regression pair → confirmed detection) and
 3. **6–8 real scenarios — ✅ DONE.** [`examples/suite/`](fp-measurement.md) has 8 scenarios
    spanning tool trajectories / semantic / refusal / format, with canned `tool_results` and
    no noisy assertions. `examples/scenarios/` stays as the minimal offline demo.
-4. **Held-out FP measurement — ⏳ harness done, full judged run pending connectivity.** See
-   [`docs/fp-measurement.md`](fp-measurement.md) + [`scripts/fp_measurement.py`](../scripts/fp_measurement.py).
-   Same-model-vs-itself across the held-out suite measures the FP rate; injected regressions
-   confirm detection. Evidence so far: **0 false positives** across the golden test (0/4
-   synthetic), real same-model split-half (0/6), and the real cross-model smoke run (0/3).
-   The full **judged 8-scenario N=5** run is blocked only by intermittent `api.openai.com`
-   connectivity — re-run the harness in a stable window to populate the headline number.
+4. **Held-out FP measurement — ✅ DONE (DoD met).** Live judged run
+   (`scripts/fp_measurement.py --model gpt-4o-mini --runs 5`, judge on): **false-positive
+   rate = 0/8 = 0%** on the held-out suite (gpt-4o-mini vs itself, all `unchanged` @ conf
+   1.00). Detection: both perturbations that actually changed behavior were caught
+   (`refund_request`→regression, `classify_sentiment`→changed_minor); the `decline_pii`
+   injection was resisted by the model (still declined) so `unchanged` was correct — not a
+   false negative. Corroborated by 0/4 (golden), 0/6 (real same-model split-half), 0/3
+   (real cross-model). Full writeup in [`docs/fp-measurement.md`](fp-measurement.md).
 5. **Calibrate the diff thresholds** (`MIN_TOOL_TVD`, `MIN_REFUSAL_DELTA`, `ALPHA`,
    `MIN_SEMANTIC_DELTA`) on the real traces — replaces today's uncalibrated defaults; gates
    promoting the semantic judge from `changed_minor` to `regression`.
