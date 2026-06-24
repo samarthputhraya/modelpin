@@ -325,6 +325,63 @@ def test_api_error_is_wrapped_in_provider_error():
         adapter.run(_scenario(), "gpt-4o")
 
 
+# --- OpenAI-compatible hosts (Groq/OpenRouter/...) reuse this adapter via base_url ------- #
+
+
+def test_get_adapter_groq_is_openai_compatible():
+    # A free Llama host (Groq) is reached through the SAME adapter, pointed at its base_url
+    # with its own BYO-key env — no bespoke provider code.
+    adapter = get_adapter("groq")
+    assert isinstance(adapter, OpenAIAdapter)
+    assert adapter._base_url == "https://api.groq.com/openai/v1"
+    assert adapter._api_key_env == "GROQ_API_KEY"
+    assert adapter._label == "Groq"
+
+
+def test_unknown_provider_error_lists_compatible_hosts():
+    with pytest.raises(ValueError, match="groq"):
+        get_adapter("definitely-not-a-provider")
+
+
+def test_compatible_provider_missing_key_names_its_own_env(monkeypatch):
+    # The "key not set" message must name GROQ_API_KEY, not OPENAI_API_KEY.
+    monkeypatch.delenv("GROQ_API_KEY", raising=False)
+    with pytest.raises(ProviderError, match="GROQ_API_KEY is not set"):
+        get_adapter("groq").preflight()
+
+
+def test_compatible_provider_api_error_uses_its_label():
+    # An error from a Groq-configured adapter must say "Groq", not "OpenAI".
+    def _boom(**_):
+        raise RuntimeError("upstream 500")
+
+    client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=_boom)))
+    adapter = OpenAIAdapter(client=client, label="Groq")
+    with pytest.raises(ProviderError, match="Groq call for model 'llama-3.3-70b' failed"):
+        adapter.run(_scenario(), "llama-3.3-70b")
+
+
+def test_build_client_passes_base_url(monkeypatch):
+    # build_openai_client must forward base_url + the BYO-key to the SDK client.
+    import sys
+    import types
+
+    captured: dict = {}
+
+    class FakeOpenAI:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+    monkeypatch.setitem(sys.modules, "openai", types.SimpleNamespace(OpenAI=FakeOpenAI))
+    monkeypatch.setenv("GROQ_API_KEY", "gsk_test_key")
+
+    from modelpin.providers.openai import build_openai_client
+
+    build_openai_client("GROQ_API_KEY", "https://api.groq.com/openai/v1")
+    assert captured["api_key"] == "gsk_test_key"
+    assert captured["base_url"] == "https://api.groq.com/openai/v1"
+
+
 def test_auth_error_message_does_not_echo_the_raw_exception():
     # An AuthenticationError's text can embed a redacted key fragment; we must not echo it.
     class AuthenticationError(Exception):

@@ -207,7 +207,9 @@ def baseline(
     model: Optional[str] = typer.Option(
         None, "--model", help="Model to baseline (default: config)."
     ),
-    provider: Optional[str] = typer.Option(None, "--provider", help="openai | anthropic | fake."),
+    provider: Optional[str] = typer.Option(
+        None, "--provider", help="openai | google | anthropic | groq | openrouter | fake."
+    ),
     fixtures: Optional[str] = typer.Option(
         None, "--fixtures", help="Canned traces for --provider fake."
     ),
@@ -241,7 +243,9 @@ def baseline(
 def check(
     to: str = typer.Option(..., "--to", help="The new model id to test against your baseline."),
     from_: Optional[str] = typer.Option(None, "--from", help="Baseline model (default: config)."),
-    provider: Optional[str] = typer.Option(None, "--provider", help="openai | anthropic | fake."),
+    provider: Optional[str] = typer.Option(
+        None, "--provider", help="openai | google | anthropic | groq | openrouter | fake."
+    ),
     fixtures: Optional[str] = typer.Option(
         None, "--fixtures", help="Canned traces for --provider fake."
     ),
