@@ -3,6 +3,39 @@
 > Durable handoff so any session can resume from the repo (not from chat memory).
 > Read this with `CLAUDE.md` and `docs/Modelpin-Engineering-Context-Pack.md` (the spec).
 
+## ▶ Resume here (latest — 2026-06-24)
+
+**Phase 0 is essentially complete.** Built, tested, and pushed: OpenAI adapter (live),
+Google/Gemini adapter (live-validated, cross-vendor), Anthropic stub; semantic LLM-judge;
+multi-turn replay (agent trajectories); 8-scenario eval suite (`examples/suite/`);
+FP-measurement harness. **123 tests pass; ruff + black clean.**
+
+- **DoD met:** held-out FP rate = **0/8 = 0%** (judged), regressions detected. See
+  [`fp-measurement.md`](fp-measurement.md).
+- **Cross-vendor proven:** `mp check` gpt-4o-mini → gemini-2.5-flash-lite → "unchanged".
+- **Git:** branch `feat/openai-adapter-live-path-hardening`, **PR #1**, all pushed
+  (latest `3c29d19`), working tree clean. (Note: the "Where we are (main)" section below
+  is the *original* kickoff state — this block is the current truth.)
+
+**Immediate next steps:** (1) full 8-scenario cross-vendor on **`gemini-3.1-flash-lite`
+(15 RPM)** or paced runs; (2) **calibrate** `MIN_*`/`ALPHA` thresholds on real traces —
+gates promoting the semantic judge from `changed_minor` to a CI-failing `regression`.
+(Then: retire stale `regression_threshold`; subset/superset + cost/latency in the verdict;
+GitHub Action.) Full priority list in "Next steps" below.
+
+**How to run live in this environment** (corporate proxy + BYO-key):
+- Keys are in `.env.local` (gitignored): line 1 = raw OpenAI key (`sk-…`), a
+  `GEMINI_API_KEY=…` line for Gemini. Load both before a run, e.g. parse each line —
+  `KEY=VALUE` → that var; a bare `sk-…` → `OPENAI_API_KEY`.
+- `pip install` needs `--trusted-host pypi.org --trusted-host files.pythonhosted.org`.
+- The SDKs need the OS trust store, so invoke the CLI through a truststore shim:
+  `python -c "import truststore; truststore.inject_into_ssl(); from modelpin.cli import main; main()" <args>`.
+- Gemini free-tier **RPM caps** (AI Studio → Rate Limit): 2.0-flash = 0 (unavailable),
+  2.5-flash = 5, **2.5-flash-lite = 10, 3.1-flash-lite = 15**. Stay under them (small/paced
+  runs); 429 = our rate, 503 = transient Google capacity (retry).
+
+---
+
 ## Where we are (branch `main`, pushed to GitHub, private)
 
 - **`33d10d0`** — Phase-0 skeleton + **statistically-hardened behavioral diff** (the moat):
