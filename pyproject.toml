@@ -32,8 +32,8 @@ dev = ["pytest>=8", "ruff>=0.5", "black>=24.0"]
 
 [project.urls]
 Homepage = "https://modelpin.dev"
-Repository = "https://github.com/modelpin/modelpin"
-Issues = "https://github.com/modelpin/modelpin/issues"
+Repository = "https://github.com/samarthputhraya/modelpin"
+Issues = "https://github.com/samarthputhraya/modelpin/issues"
 
 [project.scripts]
 modelpin = "modelpin.cli:main"

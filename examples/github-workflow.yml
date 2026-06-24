@@ -2,7 +2,7 @@
 #
 # It runs Modelpin on every pull request, comparing a candidate model against your committed
 # baseline, posts the behavioral diff as a sticky PR comment, and fails the check on a
-# regression. Replace OWNER/REPO with the Modelpin action's repo+tag, and set your model ids.
+# regression. Replace the tag below with a real release tag, and set your model ids.
 
 name: Modelpin
 
@@ -21,7 +21,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Modelpin check
-        uses: OWNER/REPO/actions@v1     # pin to a release tag
+        uses: samarthputhraya/modelpin/actions@v1     # pin to a release tag
         with:
           from: gpt-4o-mini             # the model you depend on today (committed baseline)
           to: gpt-5.5                    # the new model to test before adopting
