@@ -1,0 +1,11 @@
+{
+  "id": "explain_concept",
+  "name": "Factual explanation: what a database index does (semantic discriminator)",
+  "kind": "single",
+  "input": {
+    "messages": [
+      {"role": "user", "content": "In one or two sentences, explain what a database index does and its main trade-off."}
+    ],
+    "temperature": 0.7
+  }
+}

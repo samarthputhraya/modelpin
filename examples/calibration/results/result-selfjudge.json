@@ -1,0 +1,94 @@
+{
+  "model": "gpt-4o-mini",
+  "runs": 5,
+  "rows": [
+    {
+      "scenario": "classify_topic",
+      "label": "equivalent",
+      "score": 1.0,
+      "delta": 0,
+      "p": 1.0
+    },
+    {
+      "scenario": "classify_topic",
+      "label": "changed",
+      "score": 0.2,
+      "delta": 0.8,
+      "p": 0.0238
+    },
+    {
+      "scenario": "define_term",
+      "label": "equivalent",
+      "score": 1.0,
+      "delta": 0,
+      "p": 1.0
+    },
+    {
+      "scenario": "define_term",
+      "label": "changed",
+      "score": 1.0,
+      "delta": 0,
+      "p": 1.0
+    },
+    {
+      "scenario": "explain_concept",
+      "label": "equivalent",
+      "score": 1.0,
+      "delta": 0,
+      "p": 1.0
+    },
+    {
+      "scenario": "explain_concept",
+      "label": "changed",
+      "score": 0.0,
+      "delta": 1,
+      "p": 0.004
+    },
+    {
+      "scenario": "reco_decision",
+      "label": "equivalent",
+      "score": 1.0,
+      "delta": 0,
+      "p": 1.0
+    },
+    {
+      "scenario": "reco_decision",
+      "label": "changed",
+      "score": 0.0,
+      "delta": 1,
+      "p": 0.004
+    },
+    {
+      "scenario": "summarize_outcome",
+      "label": "equivalent",
+      "score": 1.0,
+      "delta": 0,
+      "p": 1.0
+    },
+    {
+      "scenario": "summarize_outcome",
+      "label": "changed",
+      "score": 0.0,
+      "delta": 1,
+      "p": 0.004
+    },
+    {
+      "scenario": "unit_answer",
+      "label": "equivalent",
+      "score": 1.0,
+      "delta": 0,
+      "p": 1.0
+    },
+    {
+      "scenario": "unit_answer",
+      "label": "changed",
+      "score": 0.0,
+      "delta": 1,
+      "p": 0.004
+    }
+  ],
+  "provider": "openai",
+  "judge": "gpt-4o-mini",
+  "alpha": 0.05,
+  "_note": "Self-judge run: candidate model == judge model == gpt-4o-mini. Clean 0.0/1.0 separation, but an adversarial audit flagged self-judging circularity, so this is NOT the run that justifies the promotion -- see result-independent-judge.json."
+}

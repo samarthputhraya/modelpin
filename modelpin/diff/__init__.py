@@ -8,8 +8,9 @@ a signal counts as a regression only when the candidate distribution differs fro
 baseline at p <= ALPHA *and* the effect clears a minimum size. A single odd run,
 or a majority that merely flips between two equally-likely behaviors, is NOT a
 regression — the permutation test treats it as noise. The semantic LLM-judge
-(``semantic.py``, spec 6B) is not wired in yet; this layer is purely structural
-+ statistical and never makes a network call.
+(``semantic.py``, spec 6B) is optional and injected: with ``judge=None`` this layer
+stays purely structural + statistical and never makes a network call; with a judge it
+adds a calibrated semantic-divergence signal through the same distributional test.
 """
 
 from __future__ import annotations
@@ -41,8 +42,13 @@ MIN_TOOL_TVD = 0.5
 #: Ignore refusal-rate rises smaller than this even if "significant" (one run in three).
 MIN_REFUSAL_DELTA = 0.34
 #: Candidate semantic-divergence rate must exceed the baseline's by at least this much.
-#: Conservative + uncalibrated (like the floors above) — protects the FP north-star until
-#: the judge is calibrated on a labeled set.
+#: CALIBRATED on examples/calibration/ (labeled set distinct from the held-out suite; see
+#: docs/STATUS.md): equivalent-but-reworded pairs land at delta 0.0, and the meaning changes
+#: that actually took effect land at delta >= 0.8 (one perturbation the model resisted scored
+#: 0.0 — a failed perturbation, not a missed regression), so 0.5 sits in the empty gap with 0
+#: false positives. The held-out suite re-validation stayed 0/8 with the promotion live. NOTE
+#: the calibration set is still small and the perturbations synthetic — see docs/STATUS.md for
+#: the limitations and the planned expansion to real migration traces + an independent judge.
 MIN_SEMANTIC_DELTA = 0.5
 
 
@@ -165,11 +171,14 @@ def diff_scenario(
         minor_pvalues.append(fmt_p)
         reasons.append("output format drift: violates the scenario's text assertions")
     if semantic_diverged:
-        # An uncalibrated judge escalates only to changed_minor (surfaced, not CI-failing).
-        # Promote to a hard regression once the judge is calibrated on a labeled set.
-        if verdict != DiffVerdict.regression:
-            verdict = DiffVerdict.changed_minor
-        minor_pvalues.append(semantic_p)
+        # Calibrated (examples/calibration/): a consistent semantic divergence beyond the
+        # baseline's own spread, clearing MIN_SEMANTIC_DELTA at p <= ALPHA, is a hard,
+        # CI-failing regression. The labeled sweep separated equivalent (delta 0.0) from real
+        # meaning changes (delta >= 0.8) with 0 false positives at this floor, so this no
+        # longer over-fires on reworded-but-equivalent answers. A single divergent run, or a
+        # minority below the floor, still reads as noise (the permutation test + the floor).
+        verdict = DiffVerdict.regression
+        hard_pvalues.append(semantic_p)
         reasons.append(
             f"semantic drift: candidate answers diverge in meaning from baseline "
             f"(equivalence {semantic_score:.0%})"

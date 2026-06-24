@@ -84,9 +84,40 @@ across signals: `refund_request` (refuse → tool-trajectory + refusal change), 
 (comply → policy/format + semantic change), `classify_sentiment` (always "Positive" →
 assertion + semantic change). Expected verdict: `regression` / `changed_minor`.
 
+## Semantic-judge calibration & promotion (2026-06-24)
+
+The semantic judge **now escalates a consistent meaning change to a CI-failing
+`regression`** (previously it was capped at `changed_minor` because `MIN_SEMANTIC_DELTA`
+was an uncalibrated guess). The promotion is backed by a labeled calibration set —
+[`examples/calibration/`](../examples/calibration/), **deliberately distinct from the
+held-out suite above** so this tuning does not leak into the 0/8 claim — and two raw-data
+runs recorded under [`examples/calibration/results/`](../examples/calibration/results/):
+
+- **Independent-judge run (the evidence of record):** candidate `gpt-3.5-turbo`, judge
+  `gpt-4o-mini` (the judge does **not** grade its own output, so no self-judging bias).
+  At `MIN_SEMANTIC_DELTA=0.5`, `ALPHA=0.05`: **0 false positives**, recall 4/6. One
+  equivalent pair scored a noisy `delta=0.20` and was correctly **absorbed by the floor +
+  permutation p-gate** — i.e. the conservative floor earns its keep.
+- **Self-judge run:** candidate == judge == `gpt-4o-mini`. Cleaner (0/6 FP, recall 5/6) but,
+  per an adversarial audit, *too* clean — self-judging inflated the separation, so it is
+  kept only as a cross-check, not the justification.
+
+**Post-promotion held-out re-validation:** re-ran `fp_measurement.py --model gpt-4o-mini
+--runs 5` with the semantic→`regression` promotion **live** → held-out FP rate **still
+0/8**, and detection *improved* (`classify_sentiment` went `changed_minor` → `regression`).
+So FP-safety at the 0.5 floor holds across **three independent conditions** (self-judge
+calibration, independent-judge calibration, held-out suite).
+
+**Known limitations (honest — do not oversell):** the calibration set is small (6 + 6
+pairs), the perturbations are synthetic system-prompt instructions (extreme, not subtle
+drift), recall on subtle changes is imperfect (4/6 — the safe failure direction: a miss is
+a false *negative*, not a false alarm), and the judge is OpenAI-only. **Next:** expand to
+≥30 labeled pairs incl. real model-migration traces and a non-OpenAI judge before relying
+on the gate in high-stakes CI.
+
 ## Honest framing (trust guardrail)
 
 These are **measurements under the stated settings**, not absolute claims about model
-quality. The thresholds are deliberately conservative and **not yet calibrated** on a
-labeled set; the semantic judge therefore escalates only to `changed_minor`, never a
-CI-failing `regression`. Calibration (and promoting the judge) is the next step.
+quality. The structural floors remain deliberately conservative; the semantic floor is now
+calibrated (above) but on a modest set, so treat the `regression` promotion as a
+well-evidenced first calibration, not a final one.
