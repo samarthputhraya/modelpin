@@ -33,11 +33,16 @@ python scripts/fp_measurement.py --model gpt-4o-mini --runs 5     # judged, full
 
 ## Results
 
-**Headline (live, judged, held-out): 0 false alarms in 8 scored trials, 0 unmeasured.**
+**Headline (live, judged, held-out): 0 false alarms in 0 scored trials — this run did not measure the false-positive rate.**
 
-That is an *observation, not a rate.* The exact one-sided 95% upper bound on 0/8 is **~31%**,
-so this result is consistent with a true false-positive rate anywhere from 0% to about a third.
-It is reported here as `0/8` and never as "0%".
+> **Corrected 2026-08-23 (MP-75).** This line previously read *"0 false alarms in 8 > scored trials"*. Those 8 trials were not scored trials. The harness now excludes a > trial in which the engine measured no effect on any channel — it had no opportunity > to fire, so counting it as a passed trial credits the engine for a test it could not > have failed. Re-run today, the same command prints `0/0 = n/a` and
+> `*** THIS RUN MEASURED NOTHING ***`. The engine did not change; the accounting did.
+> The paragraphs below already said as much — the headline had not caught up.
+
+Read as `0/8`, that was an *observation, not a rate*: the exact one-sided 95% upper bound on
+0/8 is **~31%**, consistent with a true false-positive rate anywhere from 0% to about a third.
+Read as `0/0` — which is what it actually was — the bound is **unbounded**. Either way it is
+reported as a fraction and never as "0%"; the harness now prints the upper bound itself.
 
 It is also measured on the wrong surface to be reassuring: all 8 held-out scenarios run at
 temperature 0, and identical distributions short-circuit to `p=1.0` without the statistic
@@ -71,7 +76,7 @@ regression where none occurred.
 
 | Evidence | Pairs | False positives |
 |---|---|---|
-| Live judged held-out suite (gpt-4o-mini vs itself, N=5, judge on) | 8 | **0 / 8** |
+| Live judged held-out suite (gpt-4o-mini vs itself, N=5, judge on) | 8 | **0 / 0** — no trial could fire (MP-75); was reported `0/8` |
 | Synthetic noisy-but-equivalent pairs (golden test) | 4 | **0 / 4** |
 | Real same-model split-half (captured gpt-4o-mini + gpt-3.5-turbo traces) | 6 | **0 / 6** |
 | Real cross-model smoke run, gpt-3.5-turbo → gpt-4o-mini | 3 | **0 / 3** |
@@ -90,8 +95,13 @@ cross-vendor judge fired and found two genuinely different models behaviorally e
 this suite — i.e. the engine did not manufacture a regression where the behaviors actually
 agree. (The run also surfaced + fixed two Gemini-3.x tool-loop bugs.)
 
-**Phase-0 DoD: met** — `mp check` detects genuine regressions between real model
-behaviors *and* shows a measured **0% false-positive rate** on a held-out set.
+**Phase-0 DoD: detection met; false-positive rate NOT established.** `mp check` detects
+genuine regressions between real model behaviors. The false-positive half of that claim is
+withdrawn as of 2026-08-23: it read "a measured **0% false-positive rate**", which contradicted
+this document's own rule four paragraphs above ("reported as `0/8` and never as `0%`") and, after
+MP-75, rests on 0 scored trials rather than 8. Establishing it needs a live run over
+`examples/calibration/arg_*.json` — tool-using scenarios at temperature > 0, the surface where
+false positives are actually possible. That set exists (MP-54); the run does not.
 
 ## Detection (control)
 
