@@ -26,7 +26,10 @@ This file records how we measure it and the results.
   so a low FP rate is not merely "always unchanged". The injection changes the *instruction*;
   whether the candidate's *behavior* changed is precisely what this arm measures, so a
   perturbed pair that comes back `unchanged` is scored a **miss** and never excluded. This
-  arm excludes nothing but an abstention that reached no verdict at all (ADR-0018). → ADR-0023
+  arm excludes nothing but a run that **abstained** (`insufficient_evidence`, ADR-0018);
+  provider errors are reported separately and enter neither numerator nor denominator. Contrast
+  the false-positive arm, which additionally excludes a trial that **could not have fired**
+  (ADR-0022) — an exclusion this arm must never adopt. → ADR-0023
 
 Harness: [`scripts/fp_measurement.py`](../scripts/fp_measurement.py). BYO-key; reproducible.
 
@@ -94,7 +97,11 @@ The third perturbation (`decline_pii`) the model simply resisted — it still de
 (*"I can't provide personal information…"*, no email), so nothing changed for the engine to
 see; the harness scores that a **MISS** and we claim no credit for it either way. These are 3
 synthetic, deliberately extreme system-prompt injections against one model at temperature 0,
-in a single run: `[M]` the 95% one-sided *lower* bound on true detection is **13.5%** at 2/3.
+in a single run — and the interval treats the three as exchangeable trials, which by
+construction they are not, since each was chosen to hit a different signal. `[M]` The 95%
+one-sided *lower* bound at 2/3 is **13.5%**: `1 - upper_bound_95(1, 3)`, the harness's own exact
+Clopper-Pearson helper in [`scripts/fp_measurement.py`](../scripts/fp_measurement.py). The tool
+itself prints the bare fraction only; moving the interval into it is MP-82.
 Detection is demonstrated, **not characterised**.
 
 > **Corrected 2026-08-24 (MP-81).** This section previously read *"Detection: every
@@ -111,7 +118,9 @@ Detection is demonstrated, **not characterised**.
 > them apart. An arm permitted to exclude on that basis lets a **dead engine post `0/0`** and
 > read as *"nothing to report"* rather than *"caught nothing"*. So the miss is counted, and
 > the adjudication is left to a human reading this note. → **ADR-0023**, which rejects this
-> exact exclusion; `README.md` has carried the corrected framing since #46.
+> exact exclusion. `README.md:227` has carried the corrected framing since #46; `README.md:231`
+> still published a lower bound for the withdrawn `2/2` denominator and is corrected in the
+> same change as this note.
 
 ### Corroborating evidence
 
@@ -141,8 +150,9 @@ cross-vendor judge fired and found two genuinely different models behaviorally e
 this suite — i.e. the engine did not manufacture a regression where the behaviors actually
 agree. (The run also surfaced + fixed two Gemini-3.x tool-loop bugs.)
 
-**Phase-0 DoD: detection met; false-positive rate NOT established.** `mp check` detects
-genuine regressions between real model behaviors. The false-positive half of that claim is
+**Phase-0 DoD: detection demonstrated but NOT characterised; false-positive rate NOT
+established.** `[M]` `mp check` flagged **2 of 3** injected perturbations on the run of record
+(95% one-sided lower bound **13.5%**), on real model behaviors. The false-positive half of that claim is
 withdrawn as of 2026-08-23: it read "a measured **0% false-positive rate**", which contradicted
 this document's own rule four paragraphs above ("reported as `0/8` and never as `0%`") and, after
 MP-75, rests on 0 scored trials rather than 8. Establishing it needs a live run over
@@ -151,10 +161,22 @@ false positives are actually possible. That set exists (MP-54); the run does not
 
 ## Detection (control)
 
-The harness injects three controlled regressions to confirm the engine catches real change
-across signals: `refund_request` (refuse → tool-trajectory + refusal change), `decline_pii`
-(comply → policy/format + semantic change), `classify_sentiment` (always "Positive" →
-assertion + semantic change). Expected verdict: `regression` / `changed_minor`.
+The harness injects three **perturbed instructions**, and that vocabulary is deliberate:
+whether a perturbation produces a behaviour change is what this arm measures, never a premise
+it may assert (ADR-0023). Each targets a different channel: `refund_request` (never issue refunds →
+tool-trajectory + refusal), `decline_pii` (share the customer email → policy/format +
+semantic), `classify_sentiment` (always "Positive" → assertion + semantic). The channel named
+is the one the perturbation *targets*; whether the candidate's behaviour actually changed on it
+is the measurement. A `regression` or `changed_minor` verdict scores a detection; **anything
+else, `unchanged` included, scores a miss and is never excluded**. `[M]` On the run of record
+above, `decline_pii` returned `unchanged` and is scored a MISS.
+
+**A miss here is a false _negative_ — the safe failure direction for this product, and the way
+to raise `2/3` is more perturbations, never a lower floor.** `[M]` The semantic sweep is flat
+from `MIN_SEMANTIC_DELTA` 0.1 to 0.9 — recall 4/6 and 0 false positives at *every* value — so
+lowering it buys no detection and spends false-positive headroom. The floors are governed by
+ADR-0002; converting this miss by moving one would require new labelled calibration data under
+[`examples/calibration/`](../examples/calibration/), not this number.
 
 ## Semantic-judge calibration & promotion (2026-06-24)
 

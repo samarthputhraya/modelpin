@@ -227,9 +227,14 @@ false-positive arm (the recall arm excludes nothing, deliberately), so detection
 **2 of 3** injected perturbations were flagged. The third (`decline_pii`) the model simply
 resisted — it still declined, so nothing changed for the engine to see; the harness scores that a
 **MISS** and we claim no credit for it either way. These are 3 synthetic, deliberately extreme
-system-prompt injections against one model at temperature 0, in a single run: `[M]` the 95%
-one-sided *lower* bound on true detection is 22.4% at 2/2, 13.5% at 2/3. Detection is
-demonstrated, not characterised — and quietness on *equivalent* behavior is not evidenced at all.
+system-prompt injections against one model at temperature 0, in a single run, and the interval
+treats the three as exchangeable trials, which by construction they are not. `[M]` The 95%
+one-sided *lower* bound on true detection is **13.5%** at 2/3 — `1 - upper_bound_95(1, 3)` in
+[`scripts/fp_measurement.py`](scripts/fp_measurement.py). A `2/2` reading, which drops the
+resisted case from the denominator, is **withdrawn**: the harness cannot tell a resisted
+instruction from a dead engine, so it never excludes on that basis. See the correction note in
+[`docs/fp-measurement.md`](docs/fp-measurement.md). Detection is demonstrated, not
+characterised — and quietness on *equivalent* behavior is not evidenced at all.
 
 The semantic judge's escalation threshold is **calibrated** on a labeled set in
 [`examples/calibration/`](examples/calibration/) that is **deliberately distinct from the held-out

@@ -40,6 +40,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from modelpin.diff import DiffVerdict  # noqa: E402
 from scripts.fp_measurement import (  # noqa: E402
     FP_OUTCOMES,
+    PERTURBATIONS,
     RECALL_OUTCOMES,
     build_row,
     fp_outcome,
@@ -48,6 +49,7 @@ from scripts.fp_measurement import (  # noqa: E402
     recall_report,
     recall_summary,
     recall_tally,
+    upper_bound_95,
 )
 
 
@@ -490,12 +492,46 @@ def test_the_recall_arm_never_adopts_the_fp_arms_exclusion():
 
 _FP_DOC = Path(__file__).resolve().parent.parent / "docs" / "fp-measurement.md"
 
+#: Where the harness quote begins. Indexing the section's fenced blocks positionally would
+#: silently retarget the moment a block is added above it - claims-auditor 2026-08-24.
+_QUOTE_SENTINEL = "That is what the harness prints, verbatim and unadjusted:"
+
+
+def _doc_text() -> str:
+    return _FP_DOC.read_text(encoding="utf-8")
+
 
 def _doc_detection_section() -> str:
     """The Results-section detection block, ending before `### Corroborating evidence`."""
-    text = _FP_DOC.read_text(encoding="utf-8")
+    text = _doc_text()
     start = text.index("**Detection:")
     return text[start : text.index("### Corroborating evidence", start)]
+
+
+def _doc_live_prose(section: str) -> str:
+    """The text minus every blockquote LINE.
+
+    Not `split("> **Corrected")[0]`. `[M]` fp-guardian 2026-08-24 re-asserted all four
+    withdrawn claims BELOW the correction note and the suite stayed green: a positional split
+    disables the guard for everything after it, so moving the note to the top of the section -
+    an ordinary editorial choice - would silently switch the guard off entirely.
+    """
+    return "\n".join(ln for ln in section.splitlines() if not ln.lstrip().startswith(">"))
+
+
+def _doc_run_of_record(section: str) -> list[str]:
+    """The outcomes the doc's own verdict table records, in `recall_outcome` vocabulary."""
+    rows = [ln for ln in section.splitlines() if ln.startswith("| `")]
+    assert rows, "the detection table vanished; MP-81 restored it deliberately"
+    outcomes = []
+    for row in rows:
+        outcome = row.split("|")[3]
+        assert ("MISSED" in outcome) != ("detected" in outcome), (
+            f"table row is neither a detection nor a miss, so the arm's vocabulary has "
+            f"drifted out of the doc: {row!r}"
+        )
+        outcomes.append("missed" if "MISSED" in outcome else "detected")
+    return outcomes
 
 
 def test_the_doc_quotes_the_harness_verbatim_for_the_run_it_publishes():
@@ -507,29 +543,19 @@ def test_the_doc_quotes_the_harness_verbatim_for_the_run_it_publishes():
     Nothing caught it for the length of two ADRs, because no test connected the document to
     the function whose output it claimed to be reporting. This is that connection.
 
-    The tally is derived from the doc's OWN table rather than hardcoded, so the guard holds
-    when `PERTURBATIONS` grows (MP-82): whatever run the doc records, the block it quotes
-    must be what `recall_summary` would actually emit for it. Drift in either direction -
-    editing the doc's numbers, or rewording `recall_summary` - fails here.
+    WHAT THIS DOES NOT PROVE, stated because it reads stronger than it is: both sides come
+    from the document, so this pins the doc's INTERNAL consistency and its fidelity to
+    `recall_summary`'s wording - not that the table matches a run that actually happened.
+    `[M]` fp-guardian 2026-08-24: a self-consistent two-edit forgery (flip the table row to
+    `detected`, edit the block to 3/3, drop the NOTE) survives this assertion alone. The
+    scenario-id check below closes it against `PERTURBATIONS`; closing it against the run
+    itself needs a committed artifact of the run, which the repo does not have (MP-83).
     """
     section = _doc_detection_section()
+    outcomes = _doc_run_of_record(section)
 
-    # Derive the run of record from the doc's own verdict table.
-    rows = [ln for ln in section.splitlines() if ln.startswith("| `")]
-    assert rows, "the detection table vanished; MP-81 restored it deliberately"
-    outcomes = []
-    for row in rows:
-        outcome = row.split("|")[3]
-        assert ("MISSED" in outcome) != ("detected" in outcome), (
-            f"table row is neither a detection nor a miss, so the arm's vocabulary has "
-            f"drifted out of the doc: {row!r}"
-        )
-        outcomes.append("missed" if "MISSED" in outcome else "detected")
-
-    expected = "\n".join(
-        ln for ln in recall_summary(recall_tally(outcomes)).__iter__() if ln.strip()
-    )
-    quoted = section.split("```")[1]
+    expected = "\n".join(ln for ln in recall_summary(recall_tally(outcomes)) if ln.strip())
+    quoted = section.split(_QUOTE_SENTINEL, 1)[1].split("```")[1]
     got = "\n".join(ln for ln in quoted.splitlines() if ln.strip())
 
     assert got == expected, (
@@ -540,14 +566,90 @@ def test_the_doc_quotes_the_harness_verbatim_for_the_run_it_publishes():
     )
 
 
+def test_the_docs_table_covers_exactly_the_perturbations_the_harness_injects():
+    """Anchors the doc's table to CODE, not to itself.
+
+    Without this, dropping the inconvenient row and editing the quoted fraction to match is a
+    self-consistent edit every other assertion here accepts - a mechanised version of the
+    exact defect MP-81 fixed.
+    """
+    ids = {
+        row.split("`")[1] for row in _doc_detection_section().splitlines() if row.startswith("| `")
+    }
+    assert ids == set(PERTURBATIONS), (
+        f"the doc's detection table lists {sorted(ids)} but the harness injects "
+        f"{sorted(PERTURBATIONS)}. A row dropped here shrinks the published denominator, "
+        "which is precisely how this document came to publish 2/2 for a 2/3 run."
+    )
+
+
+def test_the_prose_headline_matches_the_fraction_the_harness_printed():
+    """`[M]` claims-auditor 2026-08-24: the headline `2 of 3` could be edited to `3 of 3`
+    while the fenced block still said `2/3`, and the suite stayed green. The headline is the
+    sentence a skimmer reads; it may not disagree with the block beneath it.
+    """
+    section = _doc_detection_section()
+    t = recall_tally(_doc_run_of_record(section))
+    headline = section.split("\n", 1)[0]
+    assert f"{t['detected']} of {t['checked']}" in headline, (
+        f"the detection headline {headline!r} does not state the "
+        f"{t['detected']}/{t['checked']} the harness computes for the table below it."
+    )
+
+
+def test_the_published_lower_bound_is_the_one_the_repos_own_helper_computes():
+    """`[M]` claims-auditor 2026-08-24: `13.5%` could be edited to a flattering-and-wrong
+    `66.7%` with the suite green. The tool does not print this interval yet (MP-82), so the
+    doc is its only surface and nothing else checks it.
+
+    Derived from the doc's own tally rather than hardcoded, so it follows `PERTURBATIONS`
+    when that grows.
+    """
+    section = _doc_detection_section()
+    t = recall_tally(_doc_run_of_record(section))
+    bound = f"{1 - upper_bound_95(t['checked'] - t['detected'], t['checked']):.1%}"
+    assert f"**{bound}**" in section, (
+        f"docs/fp-measurement.md must publish the exact one-sided 95% lower bound "
+        f"{bound} for {t['detected']}/{t['checked']} - "
+        f"`1 - upper_bound_95({t['checked'] - t['detected']}, {t['checked']})`."
+    )
+
+
+def test_the_correction_note_and_its_limits_cannot_be_quietly_deleted():
+    """`[M]` claims-auditor 2026-08-24: deleting the entire `> **Corrected (MP-81)**` note,
+    and separately deleting the interval sentence together with "not characterised", both
+    left the suite green. Silently dropping a disclosure is the failure mode this project
+    rates worst - removing one must be a red build, not an edit nobody notices.
+    """
+    section = _doc_detection_section()
+    for required in (
+        "> **Corrected 2026-08-24 (MP-81)",
+        "adjusted by hand",
+        "not characterised",
+    ):
+        assert required in section, (
+            f"docs/fp-measurement.md no longer contains {required!r}. This document published "
+            "a hand-adjusted detection number for the length of two ADRs; the note recording "
+            "that, and the limits on what the corrected number supports, are not optional."
+        )
+
+
 def test_the_doc_never_asserts_that_a_perturbation_changed_behaviour():
     """ADR-0023 consequence 2, applied to the public surface rather than the operator string.
 
-    The withdrawn sentences are quotable inside the `> **Corrected**` note - that is how this
-    repo withdraws a claim - so the guard reads only the live prose above it.
+    The withdrawn sentences are quotable inside a `> **Corrected**` blockquote - that is how
+    this repo withdraws a claim - so blockquote lines are excluded and everything else is
+    live prose. `3/3` is banned alongside `2/2`: `[M]` fp-guardian 2026-08-24 noted the
+    original ban was one-directional and the unbanned direction was the flattering one.
+
+    Scoped to the WHOLE FILE, not the detection section. `[M]` 2026-08-24, re-running the
+    mutant battery after this guard was rewritten: re-asserting *"So 2/2 real behavior changes
+    were flagged"* one line ABOVE the `**Detection:` headline left all 37 green, because the
+    section slice starts at that headline. A withdrawn claim is withdrawn everywhere on the
+    page, so there is no reason to scope this narrowly - and a guard whose blind spot is
+    "one line earlier" is the kind that reads as coverage and provides none.
     """
-    section = _doc_detection_section()
-    live = section.split("> **Corrected")[0]
+    live = _doc_live_prose(_doc_text())
     for banned in (
         "actually changed behavior",
         "real behavior changes were flagged",
@@ -558,4 +660,36 @@ def test_the_doc_never_asserts_that_a_perturbation_changed_behaviour():
             f"docs/fp-measurement.md asserts {banned!r} outside the correction note. The "
             "harness cannot tell a resisted instruction from a dead engine, so it may not "
             "claim which perturbations changed behaviour. See ADR-0023."
+        )
+
+    # A TRIPWIRE, not a permanent prohibition. At the current n=3 a published `3/3` is the
+    # exact number that results from converting `decline_pii`'s miss into a detection, which
+    # ADR-0023 names as the threshold-pressure outcome - and `[M]` MP-80 records the semantic
+    # sweep flat from 0.1 to 0.9, so the slack to do it is there. It is also `0/8 = 0%`
+    # mirrored (`recall_summary`'s docstring). If the miss converts LEGITIMATELY - a
+    # perturbation whose compliance an independent oracle can verify - that is ADR-0023's
+    # stated falsifier: revisit the ADR and this line together, do not just delete it.
+    assert "3/3" not in live, (
+        "docs/fp-measurement.md publishes 3/3. If a threshold moved to get there, that is the "
+        "erosion ADR-0023 exists to catch. If the perturbation design changed instead, "
+        "revisit ADR-0023's falsifier and update this guard deliberately."
+    )
+
+
+def test_the_whole_document_uses_perturbation_vocabulary_not_regression():
+    """ADR-0023 consequence 3, over the WHOLE FILE rather than the Results slice.
+
+    `[M]` Both gates, 2026-08-24, independently: MP-81's first commit corrected the Results
+    section and left `## Detection (control)` 60 lines below still calling the injections
+    "three controlled regressions" and asserting `decline_pii` *"(comply -> ... semantic
+    change)"* - the forbidden partition, stated as fact, on the one scenario the run shows
+    the model RESISTED. A section-scoped guard is how that survived a commit whose entire
+    subject was this invariant.
+    """
+    live = _doc_live_prose(_doc_text())
+    for banned in ("controlled regression", "injected regression"):
+        assert banned not in live, (
+            f"docs/fp-measurement.md calls a perturbation a {banned!r}. Whether a perturbation "
+            "yields a regression is what this arm MEASURES, never a premise it may assert "
+            "(ADR-0023 consequence 3)."
         )

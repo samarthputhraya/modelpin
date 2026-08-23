@@ -125,13 +125,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   exclude on that basis lets a dead engine post `0/0`. The document now publishes what the
   harness prints — `2/3`, the verbatim summary block including the `MISSED` note, and `[M]` the
   95% one-sided *lower* bound of **13.5%** — with the resistance reading demoted to a labelled
-  correction note beneath it. `README.md:227,231` has carried this framing since the withdrawal
-  above; `docs/fp-measurement.md` was the one surface that did not get the correction, while
-  `README.md:222` sends the reader to it as the "Full writeup". **No number the tool computes
-  changed** — `git diff` over `modelpin/` and `scripts/` for this work is empty. `[M]` Two new
-  tests tie the document to the function whose output it quotes: four mutants — restoring the
-  withdrawn claim, hand-adjusting the quoted fraction, dropping the missed row from the table,
-  and rewording the harness while leaving the document stale — each leave the suite red.
+  correction note beneath it. `README.md:227` has carried this framing since the withdrawal
+  above; **`README.md:231` is corrected here too** — it published a 95% lower bound *for the
+  withdrawn `2/2` denominator* (`22.4% at 2/2, 13.5% at 2/3`), offering the excluded reading as
+  a co-equal alternative on the surface most readers meet first. `README.md:222` sends the
+  reader to `docs/fp-measurement.md` as the "Full writeup".
+  `[M]` The same defect appeared **twice more in the same document** and both are fixed here:
+  `## Detection (control)` called the injections "three controlled regressions" and attributed
+  `decline_pii` a *"(comply → … semantic change)"* — the forbidden assertion, stated as fact, on
+  the one scenario the run shows the model resisted, together with an `Expected verdict` line
+  naming the channel a reader would loosen to close the gap; and the Phase-0 DoD line read
+  "detection met" with no interval and no mention of the miss. The published interval now
+  carries the command that produces it (`1 - upper_bound_95(1, 3)`) and the note that
+  Clopper-Pearson treats the three perturbations as exchangeable trials, which by construction
+  they are not.
+  **No number the tool computes changed** — `git diff` over `modelpin/` and `scripts/` for this
+  work is empty. `[M]` Seven tests tie the document to the function whose output it quotes,
+  pinning the quoted block, the prose headline, the interval, the scenario set, and the
+  correction note's existence. Ten mutants each leave the suite red, including a
+  self-consistent forgery that edits the table, the fraction and the note together. `[M]` Three
+  holes found and closed, each by re-running the battery rather than by reading the tests: the
+  banned-claim guard split the section positionally, so re-asserting a withdrawn claim *below*
+  the correction note passed; the ban was one-directional — `2/2` was refused while the
+  flattering `3/3` was not; and after both were fixed the guard was still section-scoped, so
+  the same withdrawn sentence one line *above* the detection headline passed all 37 tests. **What these tests
+  still cannot do** is prove the table matches a run that happened: no artifact of the
+  detection run is committed, so they pin internal consistency and the scenario set, not
+  fidelity to reality.
 
 ### Added
 - **`insufficient_evidence` verdict, and exit code 3.** A scenario where **at least half**
