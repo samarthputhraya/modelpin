@@ -112,6 +112,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`decline_pii`) produced no behaviour change on the run of record because the model resisted
   it, so whether a perturbation is a regression is the thing being measured, not a premise.
   `README.md:227` already used this vocabulary; the harness now matches it.
+- **`docs/fp-measurement.md` published a detection number the harness never printed, and it is
+  now corrected.** The document stated *"Detection: every perturbation that actually changed
+  behavior was caught"* and concluded *"2/2 real behavior changes were flagged"*. `[M]` The
+  harness scored that same run **2/3**, before and after the change above: the document's own
+  table lists three injected perturbations and shows `decline_pii` as `unchanged`, which
+  `recall_outcome` maps to a **miss**. The third was removed from the denominator by argument —
+  the model resisted the instruction and still declined, so behaviour did not change — which is
+  exactly the exclusion **ADR-0023** rejects, and for the reason it gives: a perturbed pair
+  reading `unchanged` is *either* an engine that failed to see a real change *or* a candidate
+  that ignored the instruction, and this arm cannot tell them apart, so an arm permitted to
+  exclude on that basis lets a dead engine post `0/0`. The document now publishes what the
+  harness prints — `2/3`, the verbatim summary block including the `MISSED` note, and `[M]` the
+  95% one-sided *lower* bound of **13.5%** — with the resistance reading demoted to a labelled
+  correction note beneath it. `README.md:227,231` has carried this framing since the withdrawal
+  above; `docs/fp-measurement.md` was the one surface that did not get the correction, while
+  `README.md:222` sends the reader to it as the "Full writeup". **No number the tool computes
+  changed** — `git diff` over `modelpin/` and `scripts/` for this work is empty. `[M]` Two new
+  tests tie the document to the function whose output it quotes: four mutants — restoring the
+  withdrawn claim, hand-adjusting the quoted fraction, dropping the missed row from the table,
+  and rewording the harness while leaving the document stale — each leave the suite red.
 
 ### Added
 - **`insufficient_evidence` verdict, and exit code 3.** A scenario where **at least half**

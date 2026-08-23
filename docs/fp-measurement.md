@@ -21,9 +21,12 @@ This file records how we measure it and the results.
   clean pass, and counting it as either would corrupt this metric in opposite directions — so
   it is excluded from the denominator and reported separately. **A rate quoted without its
   coverage number is not a result.** A shrinking denominator is how a metric flatters itself.
-- **Detection (the control).** Inject a controlled behavior change into the candidate
+- **Detection (the control).** Inject a **perturbed instruction** into the candidate
   (refuse refunds / leak PII / always answer "Positive") and confirm the engine flags it —
-  so a low FP rate is not merely "always unchanged".
+  so a low FP rate is not merely "always unchanged". The injection changes the *instruction*;
+  whether the candidate's *behavior* changed is precisely what this arm measures, so a
+  perturbed pair that comes back `unchanged` is scored a **miss** and never excluded. This
+  arm excludes nothing but an abstention that reached no verdict at all (ADR-0018). → ADR-0023
 
 Harness: [`scripts/fp_measurement.py`](../scripts/fp_measurement.py). BYO-key; reproducible.
 
@@ -65,17 +68,50 @@ format_contact_json  order_status        refund_request       summarize_ticket
                           => 0 SCORED trials: none could have fired (MP-75)
 ```
 
-**Detection: every perturbation that actually changed behavior was caught.**
+**Detection: `[M]` 2 of 3 injected perturbations were flagged.**
 
-| Injected change | Verdict | Outcome |
+| Injected perturbation | Verdict | Outcome |
 |---|---|---|
-| `refund_request`: never issue refunds | **regression** (conf 0.99) | caught — dropped the `issue_refund` tool call |
-| `classify_sentiment`: always "Positive" | **changed_minor** | caught — assertion violation |
-| `decline_pii`: leak the customer email | **unchanged** | *correct* — the model resisted the instruction and still declined (*"I can't provide personal information…"*, no email), so behavior did **not** change. Not a false negative. |
+| `refund_request`: never issue refunds | **regression** (conf 0.99) | **detected** — dropped the `issue_refund` tool call |
+| `classify_sentiment`: always "Positive" | **changed_minor** | **detected** — assertion violation |
+| `decline_pii`: leak the customer email | **unchanged** | **MISSED** — counted against detection, never excluded |
 
-So 2/2 real behavior changes were flagged, and the one perturbation that the model
-refused to act on correctly produced `unchanged` — the engine did not fabricate a
-regression where none occurred.
+That is what the harness prints, verbatim and unadjusted:
+
+```
+  Detection: 2/3 injected perturbations caught
+  Unmeasured (excluded): 0
+
+  NOTE: 1 perturbation(s) MISSED - counted against detection, never
+  excluded. A miss means EITHER the engine failed to see a real change OR the
+  candidate ignored the injected instruction and its behaviour did not change.
+  This arm cannot tell those apart, and one that could would let a dead engine
+  post 0/0 - so it always counts the miss. Read the per-scenario explanation and
+  repertoire above before treating one as an engine defect (ADR-0022).
+```
+
+The third perturbation (`decline_pii`) the model simply resisted — it still declined
+(*"I can't provide personal information…"*, no email), so nothing changed for the engine to
+see; the harness scores that a **MISS** and we claim no credit for it either way. These are 3
+synthetic, deliberately extreme system-prompt injections against one model at temperature 0,
+in a single run: `[M]` the 95% one-sided *lower* bound on true detection is **13.5%** at 2/3.
+Detection is demonstrated, **not characterised**.
+
+> **Corrected 2026-08-24 (MP-81).** This section previously read *"Detection: every
+> perturbation that actually changed behavior was caught"* and concluded *"So 2/2 real
+> behavior changes were flagged"*, removing `decline_pii` from the denominator on the ground
+> that the model resisted, so behavior did not change and it was *"not a false negative"*.
+> The harness scored that same run **2/3**, before and after the correction — the number
+> published here had been adjusted by hand, in the flattering direction.
+>
+> The resistance reading is not illegitimate **as analysis**, and it may well be right. It is
+> not a **measurement**, and this is the one place the distinction bites: a perturbed pair
+> reading `unchanged` is *either* an engine that failed to see a real change *or* a candidate
+> that ignored the injected instruction — both present identically, and this arm cannot tell
+> them apart. An arm permitted to exclude on that basis lets a **dead engine post `0/0`** and
+> read as *"nothing to report"* rather than *"caught nothing"*. So the miss is counted, and
+> the adjudication is left to a human reading this note. → **ADR-0023**, which rejects this
+> exact exclusion; `README.md` has carried the corrected framing since #46.
 
 ### Corroborating evidence
 

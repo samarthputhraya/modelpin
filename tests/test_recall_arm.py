@@ -482,3 +482,80 @@ def test_the_recall_arm_never_adopts_the_fp_arms_exclusion():
             f"{fn.__name__} uses the FP arm's decision function, whose vocabulary this arm "
             "does not share."
         )
+
+
+# --------------------------------------------------------------------------------------
+# MP-81 - the DOC must publish what the harness prints, not a hand-adjusted number.
+# --------------------------------------------------------------------------------------
+
+_FP_DOC = Path(__file__).resolve().parent.parent / "docs" / "fp-measurement.md"
+
+
+def _doc_detection_section() -> str:
+    """The Results-section detection block, ending before `### Corroborating evidence`."""
+    text = _FP_DOC.read_text(encoding="utf-8")
+    start = text.index("**Detection:")
+    return text[start : text.index("### Corroborating evidence", start)]
+
+
+def test_the_doc_quotes_the_harness_verbatim_for_the_run_it_publishes():
+    """MP-81's regression guard: the published block must be the block the harness prints.
+
+    `[M]` 2026-08-23. `docs/fp-measurement.md:68,76` published `Detection: 2/2` and *"every
+    perturbation that actually changed behavior was caught"* for a run the harness scored
+    **2/3** - `decline_pii` removed from the denominator by the argument ADR-0023 rejects.
+    Nothing caught it for the length of two ADRs, because no test connected the document to
+    the function whose output it claimed to be reporting. This is that connection.
+
+    The tally is derived from the doc's OWN table rather than hardcoded, so the guard holds
+    when `PERTURBATIONS` grows (MP-82): whatever run the doc records, the block it quotes
+    must be what `recall_summary` would actually emit for it. Drift in either direction -
+    editing the doc's numbers, or rewording `recall_summary` - fails here.
+    """
+    section = _doc_detection_section()
+
+    # Derive the run of record from the doc's own verdict table.
+    rows = [ln for ln in section.splitlines() if ln.startswith("| `")]
+    assert rows, "the detection table vanished; MP-81 restored it deliberately"
+    outcomes = []
+    for row in rows:
+        outcome = row.split("|")[3]
+        assert ("MISSED" in outcome) != ("detected" in outcome), (
+            f"table row is neither a detection nor a miss, so the arm's vocabulary has "
+            f"drifted out of the doc: {row!r}"
+        )
+        outcomes.append("missed" if "MISSED" in outcome else "detected")
+
+    expected = "\n".join(
+        ln for ln in recall_summary(recall_tally(outcomes)).__iter__() if ln.strip()
+    )
+    quoted = section.split("```")[1]
+    got = "\n".join(ln for ln in quoted.splitlines() if ln.strip())
+
+    assert got == expected, (
+        "docs/fp-measurement.md quotes a detection block the harness does not print.\n"
+        f"--- harness ---\n{expected}\n--- doc ---\n{got}\n"
+        "Publish what the harness prints (MP-81); if recall_summary's wording changed, "
+        "re-copy it here rather than paraphrasing."
+    )
+
+
+def test_the_doc_never_asserts_that_a_perturbation_changed_behaviour():
+    """ADR-0023 consequence 2, applied to the public surface rather than the operator string.
+
+    The withdrawn sentences are quotable inside the `> **Corrected**` note - that is how this
+    repo withdraws a claim - so the guard reads only the live prose above it.
+    """
+    section = _doc_detection_section()
+    live = section.split("> **Corrected")[0]
+    for banned in (
+        "actually changed behavior",
+        "real behavior changes were flagged",
+        "Not a false negative",
+        "2/2",
+    ):
+        assert banned not in live, (
+            f"docs/fp-measurement.md asserts {banned!r} outside the correction note. The "
+            "harness cannot tell a resisted instruction from a dead engine, so it may not "
+            "claim which perturbations changed behaviour. See ADR-0023."
+        )
