@@ -14,7 +14,11 @@ This file records how we measure it and the results.
   (`ALPHA=0.05`, `MIN_TOOL_TVD=0.5`, `MIN_REFUSAL_DELTA=0.34`, `MIN_SEMANTIC_DELTA=0.5`).
 - **False-positive rate (the metric).** Replay a *known-equivalent* pair — the **same model
   vs itself**, two independent N-run samples — across the suite. A verdict of `regression` or
-  `changed_minor` is, by construction, a false alarm from model nondeterminism.
+  `changed_minor` is, by construction, a false alarm from model nondeterminism. This arm
+  **excludes a trial that could not have fired** — one where the engine measured no effect on
+  any channel, which scores `unchanged` regardless of any change to the engine, so counting it
+  as a passed trial credits the engine for a test it could not fail (ADR-0022). Excluded counts
+  are printed beside the rate, never folded into it.
 - **Coverage (published beside the rate, never folded into it).** A scenario can also come
   back `insufficient_evidence`: at least half the runs on one side recorded no output, no tool
   call and no refusal, so there was nothing to compare. That is neither a false alarm nor a
@@ -32,6 +36,10 @@ This file records how we measure it and the results.
   (ADR-0022) — an exclusion this arm must never adopt. → ADR-0023
 
 Harness: [`scripts/fp_measurement.py`](../scripts/fp_measurement.py). BYO-key; reproducible.
+
+> `ADR-nnnn` refers to this project's internal decision records, which are not published. They
+> are cited for provenance only — every argument they carry is stated inline here, so nothing
+> on this page depends on reading one.
 
 ```
 python scripts/fp_measurement.py --model gpt-4o-mini --runs 5     # judged, full suite
