@@ -38,9 +38,10 @@ python scripts/fp_measurement.py --model gpt-4o-mini --runs 5     # judged, full
 > **Corrected 2026-08-23 (MP-75).** This line previously read *"0 false alarms in 8 scored
 > trials"*. Those 8 were not scored trials. The harness now excludes a trial in which nothing
 > could have fired at ALPHA — counting it as a passed trial credits the engine for a test it
-> could not fail. Re-run today, the same command prints `0/0 = n/a` and
-> `*** THIS RUN MEASURED NOTHING ***`. The engine did not change; the accounting did. The
-> paragraphs below already said as much — the headline had not caught up. See ADR-0022.
+> could not fail. **Re-scored, not re-run** — no API call was made: the same recorded verdicts
+> (8 × `unchanged` at confidence 1.00) yield `0/0 = n/a` and `*** THIS RUN MEASURED NOTHING ***`.
+> The engine did not change; the accounting did. The paragraphs below already said as much — the
+> headline had not caught up.
 
 Read as `0/8`, that was an *observation, not a rate*: the exact one-sided 95% upper bound on
 0/8 is **~31%**, consistent with a true false-positive rate anywhere from 0% to about a third.
@@ -78,12 +79,17 @@ regression where none occurred.
 
 ### Corroborating evidence
 
-| Evidence | Pairs | False positives |
-|---|---|---|
-| Live judged held-out suite (gpt-4o-mini vs itself, N=5, judge on) | 8 | **0 / 0** — no trial could fire (MP-75); was reported `0/8` |
-| Synthetic noisy-but-equivalent pairs (golden test) | 4 | **0 / 4** |
-| Real same-model split-half (captured gpt-4o-mini + gpt-3.5-turbo traces) | 6 | **0 / 6** |
-| Real cross-model smoke run, gpt-3.5-turbo → gpt-4o-mini | 3 | **0 / 3** |
+| Evidence | Pairs | Scored (could have fired) | Result |
+|---|---|---|---|
+| Live judged held-out suite (gpt-4o-mini vs itself, N=5, judge on) | 8 | **0** | n/a — no trial could fire; was published as `0/8` |
+| Synthetic noisy-but-equivalent pairs (golden test) | 4 | **0** | n/a — `[M]` all four return `unchanged` at confidence 1.0000; was published as `0/4` |
+| Real same-model split-half (captured gpt-4o-mini + gpt-3.5-turbo traces) | 6 | **not re-scored** | `0/6` on the pre-MP-75 accounting — treat as unaudited |
+| Real cross-model smoke run, gpt-3.5-turbo → gpt-4o-mini | 3 | **not re-scored** | `0/3`, and not a known-equivalent pair, so not an FP measurement at all |
+
+> **Corrected 2026-08-23 (MP-75).** When the headline was withdrawn, only row 1 was re-scored.
+> Row 2 has since been re-scored and is also **0 scored trials** — `[M]` reproduce offline, no
+> key needed, from the pairs in `tests/test_diff.py:111-119`. Rows 3–4 have **not** been
+> re-scored and must not be quoted as a false-positive rate until they are.
 
 In the cross-model smoke run, gpt-4o-mini issued a *second* tool call on 1 of 5
 `refund_request` runs — a genuine behavioral difference — and the engine correctly
@@ -137,11 +143,17 @@ runs recorded under [`examples/calibration/results/`](../examples/calibration/re
 detection *improved* (`classify_sentiment` went `changed_minor` → `regression`).
 
 > **Corrected 2026-08-23 (MP-75).** This previously read "held-out FP rate **still 0/8**" and
-> concluded FP-safety holds across **three** independent conditions. Under the corrected
-> accounting the held-out suite contributed **0 scored trials**, so it is not independent
-> evidence here. The floor rests on **two** conditions — self-judge calibration and
-> independent-judge calibration. `MIN_SEMANTIC_DELTA` is unchanged; only the claimed evidence
-> for it is.
+> concluded FP-safety holds across **three** independent conditions. It holds across **one**.
+> The held-out suite contributed **0 scored trials**, so it is not evidence here. And the two
+> calibration runs are not demonstrably independent of each other: `[M]` they share the same 6
+> scenarios and the same 6 perturbation strings (`calibrate_thresholds.py:51-63`), differing
+> only in the *candidate* model — and `[M]` neither result file records which **judge**
+> arbitrated (`_calibration_results.json` / `_calibration_indep.json` store only `model`,
+> `runs`, `rows`), while `--judge` defaults to `gpt-4o-mini` for both. Since this floor gates
+> the judge's own output, the judge is exactly the factor that would have had to vary, and the
+> artifacts cannot show that it did. The evidence of record is the independent-*candidate* run
+> alone: 0 false positives in 6 equivalent pairs, `[M]` 95% one-sided upper bound **39.3%**.
+> `MIN_SEMANTIC_DELTA` is unchanged; only the claimed evidence for it is.
 
 **Known limitations (honest — do not oversell):** the calibration set is small (6 + 6
 pairs), the perturbations are synthetic system-prompt instructions (extreme, not subtle

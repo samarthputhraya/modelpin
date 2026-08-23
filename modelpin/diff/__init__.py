@@ -69,12 +69,15 @@ MIN_TOOL_TVD = 0.5
 MIN_REFUSAL_DELTA = 0.34
 #: Candidate semantic-divergence rate must exceed the baseline's by at least this much.
 #: CALIBRATED on examples/calibration/ (labeled set distinct from the held-out suite; see
-#: docs/fp-measurement.md): equivalent-but-reworded pairs land at delta 0.0, and the meaning changes
-#: that actually took effect land at delta >= 0.8 (one perturbation the model resisted scored
-#: 0.0 — a failed perturbation, not a missed regression), so 0.5 sits in the empty gap with 0
-#: false positives. The held-out re-validation moved no verdict with the promotion live -- but
-#: it contributed 0 SCORED trials (MP-75/ADR-0022: those temp-0 pairs could not have fired), so
-#: it is not independent evidence for this floor. The labeled set below is. NOTE
+#: docs/fp-measurement.md). On the INDEPENDENT-CANDIDATE run of record (`_calibration_indep.json`,
+#: candidate gpt-3.5-turbo): equivalent pairs land at delta 0.0-0.20 and the meaning changes that
+#: actually took effect at 0.60-1.0, so 0.5 sits in that gap with 0 false positives in 6 pairs
+#: ([M] 95% upper bound 39.3%). The cleaner "0.0 versus >=0.8" separation quoted here previously
+#: is the SELF-JUDGE run, which an adversarial audit demoted as circular -- do not cite it as the
+#: justification. [M] `explain_concept` scores 0.20 equivalent / 0.60 changed on the independent
+#: run, and `define_term`'s CHANGED pair scores 0.0. The held-out re-validation moved no verdict
+#: with the promotion live, but contributed 0 SCORED trials (MP-75/ADR-0022), so it is not
+#: evidence for this floor either. NOTE
 #: the calibration set is still small and the perturbations synthetic — see docs/fp-measurement.md for
 #: the limitations and the planned expansion to real migration traces + an independent judge.
 MIN_SEMANTIC_DELTA = 0.5

@@ -219,21 +219,31 @@ That claim is **withdrawn** as of 2026-08-23. All 8 of those trials ran at tempe
 trial in which the engine measures no effect on any channel could not have produced a false
 alarm — counting it as a passed trial credits the engine for a test it could not fail. Scored
 honestly the same run is **0/0**, whose 95% upper bound is *unbounded*. The harness now says so
-itself. See [ADR-0022] and the full writeup: [`docs/fp-measurement.md`](docs/fp-measurement.md).
+itself. Full writeup: [`docs/fp-measurement.md`](docs/fp-measurement.md), summarised in the
+[changelog](CHANGELOG.md).
 
-What that run **does** still support: on it, the two perturbations that genuinely changed
-behavior were caught, and one prompt-injection the model resisted was correctly left `unchanged`
-(not a false negative). Detection is evidenced; quietness on *equivalent* behavior is not yet.
+What that run **does** still support, and how far: the accounting change touches only the
+false-positive arm (the recall arm excludes nothing, deliberately), so detection is unaffected.
+**2 of 3** injected perturbations were flagged. The third (`decline_pii`) the model simply
+resisted — it still declined, so nothing changed for the engine to see; the harness scores that a
+**MISS** and we claim no credit for it either way. These are 3 synthetic, deliberately extreme
+system-prompt injections against one model at temperature 0, in a single run: `[M]` the 95%
+one-sided *lower* bound on true detection is 22.4% at 2/2, 13.5% at 2/3. Detection is
+demonstrated, not characterised — and quietness on *equivalent* behavior is not evidenced at all.
 
 The semantic judge's escalation threshold is **calibrated** on a labeled set in
 [`examples/calibration/`](examples/calibration/) that is **deliberately distinct from the held-out
-suite** (so it cannot leak into the held-out result): equivalent-but-reworded pairs land at divergence
-0.0, real meaning changes at ≥ 0.8, leaving an empty gap around the 0.5 floor — 0 false positives.
+suite** (so it cannot leak into the held-out result). `[M]` On the independent-candidate run of
+record, equivalent pairs land at divergence **0.0–0.20** and real meaning changes at **0.60–1.0**,
+leaving a gap around the 0.5 floor — 0 false positives in 6 pairs, 95% upper bound **39.3%**. (The
+cleaner "0.0 versus ≥0.8" figures quoted here previously are the *self-judge* run, which an
+adversarial audit demoted as circular.)
 FP-safety was re-checked with an **independent judge** (a different model arbitrating) and
 re-validated on the held-out suite after promoting semantic divergence from `changed_minor` to a
-CI-failing `regression` — no verdict moved. Note the held-out re-validation contributed **0 scored
-trials** under the corrected accounting, so the floor rests on the labeled calibration set and the
-independent-judge check, not on three independent conditions.
+CI-failing `regression` — no verdict moved. That re-validation contributed **0 scored trials** under
+the corrected accounting, and `[M]` the two calibration runs share their scenarios and their
+perturbations, differing only in the candidate model — neither result file even records which judge
+arbitrated. So the floor rests on **one** labeled condition, not three.
 
 **This is a first calibration. Do not over-trust it.** The honest limitations, documented in
 [`docs/fp-measurement.md`](docs/fp-measurement.md):
@@ -241,8 +251,9 @@ independent-judge check, not on three independent conditions.
   harvested from real migrations;
 - recall on subtle changes was 4/6 — it can *miss* a subtle real change (again, the safe direction);
 - the judge is **OpenAI-only** so far;
-- the structural floors are FP-validated by the held-out suite but **not yet swept** on a labeled
-  set.
+- the structural floors are **not** FP-validated: `[M]` the held-out run contributed 0 scored
+  trials, and at the shipped `runs: 5` the floors are **inert** anyway — the p-value gate is
+  strictly stricter, and they first bind at N=9 (semantic), N=11 (tool), N=12 (refusal).
 
 Planned before any high-stakes reliance: ≥30 pairs including real migration traces, and a
 non-OpenAI judge. We'd rather you know this than discover it.
@@ -372,13 +383,14 @@ is what keeps the false-positive promise honest and the tool small enough to tru
 
 ## Status
 
-**Phase 0 (core engine MVP) — complete; `v0.1.1` live on PyPI.** Live-validated cross-vendor
+**Phase 0 (core engine MVP) — detection DoD met; the false-positive half is NOT met**
+(see [`docs/fp-measurement.md`](docs/fp-measurement.md)); `v0.1.2` live on PyPI. Live-validated cross-vendor
 (OpenAI ↔ Google ↔ Groq/Llama); **false-positive rate not established** (the "0 in 8 held-out
 trials" claim is withdrawn — those 8 could not have fired, so the honest score is 0/0); multi-turn replay; a real
 GitHub Action; the public-report engine (`mp report`) + the open suite (in this repo, not
 in the wheel); the
 [Drift Map #1](docs/reports/modelpin-drift-map-1.md) published across 5 real migration pairs;
-`pip install "modelpin[providers]"`; **201 tests passing**, `ruff` + `black` clean. The Anthropic
+`pip install "modelpin[providers]"`; **299 tests passing**, `ruff` + `black` clean. The Anthropic
 adapter is still a stub (deferred until a paid key is in play); not yet listed on the GitHub
 Marketplace.
 
