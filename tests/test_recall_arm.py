@@ -509,14 +509,35 @@ def _doc_detection_section() -> str:
 
 
 def _doc_live_prose(section: str) -> str:
-    """The text minus every blockquote LINE.
+    """The text minus the WITHDRAWAL notes - not minus every blockquote.
 
-    Not `split("> **Corrected")[0]`. `[M]` fp-guardian 2026-08-24 re-asserted all four
-    withdrawn claims BELOW the correction note and the suite stayed green: a positional split
-    disables the guard for everything after it, so moving the note to the top of the section -
-    an ordinary editorial choice - would silently switch the guard off entirely.
+    Three iterations, each hole found by RUNNING the battery rather than by reading the test:
+
+    1. `split("> **Corrected")[0]` was positional, so re-asserting a withdrawn claim BELOW the
+       note passed, and moving the note to the top of the section would have disabled the
+       guard entirely (`[M]` fp-guardian 2026-08-24).
+    2. Section-scoped, so the same sentence one line ABOVE the `**Detection:` headline passed
+       all 37 tests (`[M]` found re-running the battery after fixing 1).
+    3. Stripping EVERY blockquote line, this version's predecessor: `[M]` fp-guardian
+       2026-08-24 inserted a `> **In brief.**` pull-quote directly under `## Results` carrying
+       all three withdrawn claims, in the most-read position on the page, and got 37 green.
+       Blockquotes are how this repo withdraws a claim, but nothing MAKES a blockquote a
+       withdrawal - so only a quote opening with the `**Corrected` marker is exempt.
     """
-    return "\n".join(ln for ln in section.splitlines() if not ln.lstrip().startswith(">"))
+    out: list[str] = []
+    in_withdrawal = False
+    for ln in section.splitlines():
+        if ln.lstrip().startswith(">"):
+            if "**Corrected" in ln:
+                in_withdrawal = True
+            if not in_withdrawal:
+                out.append(ln)
+            continue
+        if not ln.strip():
+            continue
+        in_withdrawal = False
+        out.append(ln)
+    return "\n".join(out)
 
 
 def _doc_run_of_record(section: str) -> list[str]:
@@ -655,6 +676,12 @@ def test_the_doc_never_asserts_that_a_perturbation_changed_behaviour():
         "real behavior changes were flagged",
         "Not a false negative",
         "2/2",
+        # `[M]` fp-guardian 2026-08-24: MP-81's own fix introduced this one. "A miss here IS a
+        # false negative" entails "the behaviour changed and the engine missed it" - ADR-0023
+        # consequence 2, in the unflattering direction, and the same sentence fp-guardian
+        # blocked from the operator string during MP-79.
+        "is a false negative",
+        "is a false _negative_",
     ):
         assert banned not in live, (
             f"docs/fp-measurement.md asserts {banned!r} outside the correction note. The "
@@ -662,17 +689,36 @@ def test_the_doc_never_asserts_that_a_perturbation_changed_behaviour():
             "claim which perturbations changed behaviour. See ADR-0023."
         )
 
-    # A TRIPWIRE, not a permanent prohibition. At the current n=3 a published `3/3` is the
-    # exact number that results from converting `decline_pii`'s miss into a detection, which
-    # ADR-0023 names as the threshold-pressure outcome - and `[M]` MP-80 records the semantic
-    # sweep flat from 0.1 to 0.9, so the slack to do it is there. It is also `0/8 = 0%`
-    # mirrored (`recall_summary`'s docstring). If the miss converts LEGITIMATELY - a
-    # perturbation whose compliance an independent oracle can verify - that is ADR-0023's
-    # stated falsifier: revisit the ADR and this line together, do not just delete it.
-    assert "3/3" not in live, (
-        "docs/fp-measurement.md publishes 3/3. If a threshold moved to get there, that is the "
-        "erosion ADR-0023 exists to catch. If the perturbation design changed instead, "
-        "revisit ADR-0023's falsifier and update this guard deliberately."
+
+def test_a_perfect_detection_score_is_a_tripwire_not_a_silent_publish():
+    """A TRIPWIRE, not a permanent prohibition, and the ONLY guard that catches a fully
+    self-consistent forgery (`[M]` fp-guardian, twice).
+
+    An all-detected score is `0/8 = 0%` mirrored - `recall_summary`'s docstring refuses to
+    print a percentage for exactly this reason. It is also the outcome ADR-0023 names as the
+    threshold-pressure endpoint: converting `decline_pii`'s miss by moving a floor lands
+    precisely here, and `[M]` the semantic sweep is flat from 0.1 to 0.9, so the slack to do
+    it exists.
+
+    Asserted over the doc's TALLY, never over the characters `"3/3"`. `[M]` fp-guardian
+    2026-08-24 showed the substring form was (a) unsatisfiable in conjunction with the
+    verbatim guard - a legitimate all-detected run makes the harness quote itself contain
+    `3/3`, so no document could pass both, and the cheapest repair would have been to stop
+    scanning fenced blocks, silently gutting the banned-claims guard - and (b) a false alarm
+    on ordinary fractions: `13/30`, `23/30`, `3/31` all matched, and this document's own
+    stated next step is ">=30 labeled pairs".
+
+    If the miss converts LEGITIMATELY - a perturbation whose compliance an independent oracle
+    can verify - that is ADR-0023's stated falsifier: revisit the ADR and this guard together.
+    Deleting this line alone is the erosion it exists to catch.
+    """
+    t = recall_tally(_doc_run_of_record(_doc_detection_section()))
+    assert not (t["checked"] > 0 and t["detected"] == t["checked"]), (
+        f"docs/fp-measurement.md publishes a perfect {t['detected']}/{t['checked']} detection "
+        "score. If a threshold moved to get there, that is the erosion ADR-0023 exists to "
+        "catch. If the perturbation design changed instead, revisit ADR-0023's falsifier and "
+        "update this guard deliberately - it is the only one that catches a self-consistent "
+        "rewrite of the table, the fraction and the note together."
     )
 
 
@@ -693,3 +739,37 @@ def test_the_whole_document_uses_perturbation_vocabulary_not_regression():
             "yields a regression is what this arm MEASURES, never a premise it may assert "
             "(ADR-0023 consequence 3)."
         )
+
+
+_README = Path(__file__).resolve().parent.parent / "README.md"
+
+
+def test_the_readme_publishes_the_same_detection_fraction_as_the_harness():
+    """`README.md` is the surface most readers meet, and nothing guarded it.
+
+    `[M]` claims-auditor 2026-08-24, second pass: seven separate edits to `README.md` each
+    left the whole suite green - including `2 of 3` -> `3 of 3`, restoring the withdrawn
+    `22.4% at 2/2` interval, deleting the withdrawal paragraph outright, and a `299 tests
+    passing` line that was 40 short of the real count. Two of those were real staleness this
+    change had to fix by hand, which is the argument for pinning at least the number the whole
+    correction is about.
+
+    Scoped deliberately to the detection fraction and the withdrawal's existence. Guarding
+    every claim in a README from a unit test is the wrong shape; MP-85 covers the rest.
+    """
+    text = _README.read_text(encoding="utf-8")
+    t = recall_tally(_doc_run_of_record(_doc_detection_section()))
+
+    assert f"**{t['detected']} of {t['checked']}** injected perturbations were flagged" in text, (
+        f"README.md must publish the same {t['detected']} of {t['checked']} the harness "
+        "computes and docs/fp-measurement.md quotes. It is the project's only surviving "
+        "quantitative DoD claim and the surface most readers meet first."
+    )
+    bound = f"{1 - upper_bound_95(t['checked'] - t['detected'], t['checked']):.1%}"
+    assert (
+        f"**{bound}**" in text
+    ), f"README.md must publish the exact one-sided 95% lower bound {bound}."
+    assert "is **withdrawn**" in text, (
+        "README.md no longer withdraws the 2/2 reading. A withdrawal that can be deleted "
+        "silently is not a withdrawal."
+    )

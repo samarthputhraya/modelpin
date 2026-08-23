@@ -107,11 +107,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   or abstained, now prints a banner saying so instead of a bare `0/0`. And provider errors,
   previously printed as they occurred but left out of the accounting, are now counted and
   published beside the fraction.
-  The arm also stops calling the injected instructions "regressions" — `[S]`
-  `docs/fp-measurement.md:74` (2026-08-23) records that 1 of the 3 in `PERTURBATIONS`
-  (`decline_pii`) produced no behaviour change on the run of record because the model resisted
-  it, so whether a perturbation is a regression is the thing being measured, not a premise.
-  `README.md:227` already used this vocabulary; the harness now matches it.
+  The arm also stops calling the injected instructions "regressions". `[M]` 1 of the 3 in
+  `PERTURBATIONS` (`decline_pii`) returned `unchanged` on the run of record; reading that trace
+  by hand, the model still declined and emitted no email — **an analysis, not a measurement**,
+  since the arm cannot tell resistance from a dead engine. So whether a perturbation is a
+  regression is the thing being measured, not a premise. `README.md` already used this
+  vocabulary; the harness now matches it.
 - **`docs/fp-measurement.md` published a detection number the harness never printed, and it is
   now corrected.** The document stated *"Detection: every perturbation that actually changed
   behavior was caught"* and concluded *"2/2 real behavior changes were flagged"*. `[M]` The
@@ -140,18 +141,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Clopper-Pearson treats the three perturbations as exchangeable trials, which by construction
   they are not.
   **No number the tool computes changed** — `git diff` over `modelpin/` and `scripts/` for this
-  work is empty. `[M]` Seven tests tie the document to the function whose output it quotes,
-  pinning the quoted block, the prose headline, the interval, the scenario set, and the
-  correction note's existence. Ten mutants each leave the suite red, including a
-  self-consistent forgery that edits the table, the fraction and the note together. `[M]` Three
-  holes found and closed, each by re-running the battery rather than by reading the tests: the
-  banned-claim guard split the section positionally, so re-asserting a withdrawn claim *below*
-  the correction note passed; the ban was one-directional — `2/2` was refused while the
-  flattering `3/3` was not; and after both were fixed the guard was still section-scoped, so
-  the same withdrawn sentence one line *above* the detection headline passed all 37 tests. **What these tests
-  still cannot do** is prove the table matches a run that happened: no artifact of the
-  detection run is committed, so they pin internal consistency and the scenario set, not
-  fidelity to reality.
+  work is empty. `[M]` Nine tests tie the document to the function whose output it quotes,
+  pinning the quoted block, the prose headline, the interval, the scenario set, the correction
+  note's existence, and a perfect-score tripwire. Fourteen mutants each leave the suite red,
+  including a fully self-consistent forgery that edits the table, the fraction, the recomputed
+  interval and the note together.
+  `[M]` **Five holes found and closed, every one by RUNNING the battery rather than reading the
+  tests** — recorded because the pattern is the point: a guard that reads as coverage and
+  provides none is this project's recurring defect. The banned-claim guard split the section
+  positionally, so re-asserting a withdrawn claim *below* the correction note passed; the ban
+  was one-directional, refusing `2/2` while allowing the flattering `3/3`; after both fixes it
+  was still section-scoped, so the same sentence one line *above* the headline passed; it then
+  stripped *every* blockquote, so a `> **In brief.**` pull-quote re-asserted all three
+  withdrawn claims in the most-read position on the page; and the `3/3` ban was a bare
+  substring that misfired on ordinary fractions like `13/30` **and** was unsatisfiable beside
+  the verbatim guard — a legitimate perfect score could not be published at all, whose cheapest
+  repair would have silently gutted the guard. It is now a state assertion over the document's
+  own tally, so a legitimate perfect score turns exactly one test red: the deliberate review
+  ADR-0023's falsifier calls for.
+  **What these tests still cannot do**, stated because they read stronger than they are: they
+  do not prove the table matches a run that happened — no artifact of the detection run is
+  committed (MP-83) — and their scope is `docs/fp-measurement.md` plus, in `README.md`, only
+  the detection fraction, the interval and the withdrawal's existence. `[M]` Every other
+  `README.md` claim can still be edited or deleted with the suite green — including the
+  `299 tests passing` line this change had to correct by hand to **341** (MP-85).
 
 ### Added
 - **`insufficient_evidence` verdict, and exit code 3.** A scenario where **at least half**

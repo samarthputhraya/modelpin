@@ -15,10 +15,15 @@ This file records how we measure it and the results.
 - **False-positive rate (the metric).** Replay a *known-equivalent* pair — the **same model
   vs itself**, two independent N-run samples — across the suite. A verdict of `regression` or
   `changed_minor` is, by construction, a false alarm from model nondeterminism. This arm
-  **excludes a trial that could not have fired** — one where the engine measured no effect on
-  any channel, which scores `unchanged` regardless of any change to the engine, so counting it
-  as a passed trial credits the engine for a test it could not fail (ADR-0022). Excluded counts
-  are printed beside the rate, never folded into it.
+  **excludes a trial that could not have fired** — one where *every* channel returned `p = 1.00`
+  (after rounding, `min(p) >= 0.9995`), so the trial scores `unchanged` at any ALPHA < 1
+  regardless of any change to the engine, and counting it as a passed trial credits the engine
+  for a test it could not fail (ADR-0022). **That is strictly broader than "nothing moved"**:
+  `[M]` golden pairs 3 and 4 in `tests/test_diff.py` have genuinely different tool
+  distributions and are still excluded, because 5 runs a side cannot separate them. So `scored`
+  is roughly half what a naive reading expects, and a calibration run needs about twice the
+  trials for a given interval width. Excluded counts are printed beside the rate, never folded
+  into it.
 - **Coverage (published beside the rate, never folded into it).** A scenario can also come
   back `insufficient_evidence`: at least half the runs on one side recorded no output, no tool
   call and no refusal, so there was nothing to compare. That is neither a false alarm nor a
@@ -126,9 +131,9 @@ Detection is demonstrated, **not characterised**.
 > them apart. An arm permitted to exclude on that basis lets a **dead engine post `0/0`** and
 > read as *"nothing to report"* rather than *"caught nothing"*. So the miss is counted, and
 > the adjudication is left to a human reading this note. → **ADR-0023**, which rejects this
-> exact exclusion. `README.md:227` has carried the corrected framing since #46; `README.md:231`
-> still published a lower bound for the withdrawn `2/2` denominator and is corrected in the
-> same change as this note.
+> exact exclusion. `README.md` has carried the corrected framing (*"2 of 3 injected
+> perturbations were flagged"*) since #46; its interval sentence still published a lower bound
+> for the withdrawn `2/2` denominator and is corrected in the same change as this note.
 
 ### Corroborating evidence
 
@@ -179,12 +184,23 @@ is the measurement. A `regression` or `changed_minor` verdict scores a detection
 else, `unchanged` included, scores a miss and is never excluded**. `[M]` On the run of record
 above, `decline_pii` returned `unchanged` and is scored a MISS.
 
-**A miss here is a false _negative_ — the safe failure direction for this product, and the way
-to raise `2/3` is more perturbations, never a lower floor.** `[M]` The semantic sweep is flat
-from `MIN_SEMANTIC_DELTA` 0.1 to 0.9 — recall 4/6 and 0 false positives at *every* value — so
-lowering it buys no detection and spends false-positive headroom. The floors are governed by
-ADR-0002; converting this miss by moving one would require new labelled calibration data under
-[`examples/calibration/`](../examples/calibration/), not this number.
+**A miss is never a false alarm — it is either a false negative or a correct true negative, and
+this arm cannot tell which.** Either way it fails in the safe direction for this product, and
+**the way to raise `2/3` is more perturbations, never a lower floor.**
+
+`[M]` On the independent-judge calibration run of record
+([`examples/calibration/results/result-independent-judge.json`](../examples/calibration/results/result-independent-judge.json)
+— 6 labelled pairs, candidate `gpt-3.5-turbo`, judge `gpt-4o-mini`, temperature 0.7, a
+**different measurement** from the 3 perturbations above), the semantic sweep is flat from
+`MIN_SEMANTIC_DELTA` 0.1 to 0.9: recall **4/6** and 0 false alarms at every value. So on that
+set the floor is inert and lowering it buys no detection. **That flatness is not slack, and the
+reason matters more than the number**: `[M]` 5 of those 6 equivalent pairs return `p = 1.00` and
+could not have fired at any floor, and the sixth (`explain_concept`, delta 0.20) is blocked by
+the permutation p-gate at `p = 0.50` at every floor value — so at `runs=5` that column measures
+the **p-gate**, not the floor. `[M]` The floors first bind at **N=9 (semantic), 11 (tool), 12
+(refusal)** (ADR-0002), which is where lowering one converts directly into false alarms, and
+where this run cannot see. Converting this miss by moving a floor would require new labelled
+calibration data under [`examples/calibration/`](../examples/calibration/), not this number.
 
 ## Semantic-judge calibration & promotion (2026-06-24)
 
@@ -198,8 +214,12 @@ runs recorded under [`examples/calibration/results/`](../examples/calibration/re
 - **Independent-judge run (the evidence of record):** candidate `gpt-3.5-turbo`, judge
   `gpt-4o-mini` (the judge does **not** grade its own output, so no self-judging bias).
   At `MIN_SEMANTIC_DELTA=0.5`, `ALPHA=0.05`: **0 false positives**, recall 4/6. One
-  equivalent pair scored a noisy `delta=0.20` and was correctly **absorbed by the floor +
-  permutation p-gate** — i.e. the conservative floor earns its keep.
+  equivalent pair scored a noisy `delta=0.20` and was correctly **absorbed by the permutation
+  p-gate**. `[M]` **Corrected 2026-08-24 (MP-81):** this previously read "absorbed by the floor
+  + permutation p-gate — i.e. the conservative floor earns its keep". It was not the floor.
+  That pair (`explain_concept`, delta 0.20, `p = 0.50`) clears even a 0.1 floor and is stopped
+  by the p-gate alone, which is exactly why the sweep above is flat. At `runs=5` the floor is
+  inert on this set; it is a conservative choice, not a fitted or a load-bearing one.
 - **Self-judge run:** candidate == judge == `gpt-4o-mini`. Cleaner (0/6 FP, recall 5/6) but,
   per an adversarial audit, *too* clean — self-judging inflated the separation, so it is
   kept only as a cross-check, not the justification.
