@@ -15,6 +15,7 @@ adds a calibrated semantic-divergence signal through the same distributional tes
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Optional
 
 from modelpin.diff.stats import (
@@ -23,15 +24,20 @@ from modelpin.diff.stats import (
     total_variation_distance,
 )
 from modelpin.diff.semantic import Judge, semantic_divergence_flags
+from modelpin.diff.argkey import describe_argument_change
 from modelpin.diff.structural import (
     EQUIVALENCE_MODES,
     MatchMode,
     assertion_violation_flags,
     canonical_sequence,
     degenerate_count,
+    has_tool_arguments,
+    modal_arg_sequence,
     modal_sequence,
+    name_trajectory_is_stable,
     refusal_rate,
     refused_flags,
+    tool_arg_sequence,
     tool_call_sequence,
     trajectory_match,
 )
@@ -65,6 +71,28 @@ DEGENERATE_SIDE_NUMERATOR = 2
 #: A tool-call distribution must shift by at least this total-variation distance to
 #: count — guards against trivially-significant jitter once N grows large.
 MIN_TOOL_TVD = 0.5
+#: The ARGUMENT distributions must be fully DISJOINT before the argument gate fires (MP-04).
+#:
+#: 1.0 is not a fitted dial, it is a structural rule: "no run on the candidate side used a
+#: payload any baseline run used." It was chosen over the obvious alternative -- halving ALPHA
+#: for the second gate -- because [M] that alternative's meaning is NOT STABLE IN N, and this
+#: engine has already shipped two comments stating guarantees that held only at the default N:
+#:     N=3  a fully disjoint change fires at neither ALPHA nor ALPHA/2 (p = 0.100000)
+#:     N=4  a fully disjoint change does NOT fire at ALPHA/2 at all (p = 0.028571 > 0.025)
+#:          -- ALPHA/2 silently disables this entire signal at a legal `runs` setting
+#:     N=5  ALPHA/2 coincides exactly with disjointness (the default, hence the trap)
+#:     N>=6 ALPHA/2 fires on NON-disjoint changes (N=6, 5-of-6: p = 0.015152)
+#: [M] The floor stated here is exactly "disjoint and significant" at every N in 3..8, and it
+#: costs nothing against that alternative: over 72,072 exhaustive relabelings under a true
+#: null both land on 916/72072 = 1.2710% (status quo 912/72072 = 1.2654%), both hold the
+#: worst pool at 12/252, and both give 0.0722% / 0.1804% on the pure argument-jitter channel.
+#:
+#: [A] not [M]: no corpus in this repo contains RUN-TO-RUN argument variance -- 5 of 65
+#: non-empty tool calls carry arguments at all and all 5 are identical -- so the REAL-WORLD
+#: false-positive rate of this signal is unmeasured, and every number above is synthetic.
+#: Falsifier: MP-54's live tool scenarios at temperature > 0 flag one scenario whose argument
+#: change a human calls equivalent. fp-guardian protected.
+MIN_TOOL_ARG_TVD = 1.0
 #: Ignore refusal-rate rises smaller than this even if "significant" (one run in three).
 MIN_REFUSAL_DELTA = 0.34
 #: Candidate semantic-divergence rate must exceed the baseline's by at least this much.
@@ -95,7 +123,7 @@ def _scenario_task(scenario: Optional[Scenario]) -> Optional[str]:
     return None
 
 
-def _mean(values: list[float]) -> float:
+def _mean(values: Sequence[float]) -> float:
     return sum(values) / len(values) if values else 0.0
 
 
@@ -196,6 +224,48 @@ def diff_scenario(
         tool_p = permutation_pvalue_mean(base_viol, cand_viol)
     tool_regressed = tool_p <= ALPHA and tool_tvd >= MIN_TOOL_TVD
 
+    # --- tool-call ARGUMENTS (MP-04; spec 6A defines a call as "name + args") --------
+    # A SECOND signal over the same machinery, never a richer key for the first. [M] Folding
+    # arguments into the name key does not sharpen that signal, it DESTROYS it: the
+    # permutation test is relabeling-invariant, so once per-run argument jitter makes every
+    # key distinct, a total tool swap (web_search on all 5 baseline runs -> sql_query on all
+    # 5 candidate runs) flips from `regression` at 0.992 to `unchanged` at 1.0, and 42.98%
+    # of today's name-gate firings go silent.
+    #
+    # The gate runs ONLY when the name trajectory is stable on both sides and identical
+    # across them. When names are themselves jittery the NAME gate is already the
+    # responsible signal, and letting both fire on one pool is what turns two tests into a
+    # raised error rate. [M] That precondition is what keeps this fix false-positive-neutral:
+    # 1.2654% -> 1.2710% over 72,072 exhaustive relabelings, worst pool unchanged at 12/252.
+    arg_tvd = 0.0
+    arg_p = 1.0
+    arg_regressed = False
+    args_compared = (
+        has_tool_arguments(baseline_traces) or has_tool_arguments(candidate_traces)
+    ) and name_trajectory_is_stable(baseline_traces, candidate_traces, mode)
+    if args_compared:
+        if mode in EQUIVALENCE_MODES:
+            base_akeys = [canonical_sequence(tool_arg_sequence(t), mode) for t in baseline_traces]
+            cand_akeys = [canonical_sequence(tool_arg_sequence(t), mode) for t in candidate_traces]
+            arg_tvd = total_variation_distance(base_akeys, cand_akeys)
+            arg_p = permutation_pvalue_distribution(base_akeys, cand_akeys)
+        else:
+            # Mirror the name signal's own dispatch. Bucketing a directional mode by a key
+            # would flag the very change the mode PERMITS: under `subset` a dropped whole
+            # call must stay legal even though dropping it changes the argument key too.
+            ref_aseq = modal_arg_sequence(baseline_traces, mode)
+            base_aviol = [
+                0 if trajectory_match(ref_aseq, tool_arg_sequence(t), mode) else 1
+                for t in baseline_traces
+            ]
+            cand_aviol = [
+                0 if trajectory_match(ref_aseq, tool_arg_sequence(t), mode) else 1
+                for t in candidate_traces
+            ]
+            arg_tvd = max(0.0, _mean(cand_aviol) - _mean(base_aviol))
+            arg_p = permutation_pvalue_mean(base_aviol, cand_aviol)
+        arg_regressed = arg_p <= ALPHA and arg_tvd >= MIN_TOOL_ARG_TVD
+
     # --- refusal rate ----------------------------------------------------------
     refusal_delta = refusal_rate(candidate_traces) - refusal_rate(baseline_traces)
     refusal_p = permutation_pvalue_mean(
@@ -236,7 +306,14 @@ def diff_scenario(
     )
 
     signals = DiffSignals(
-        tool_call_match=round(1.0 - tool_tvd, 3),  # 1.0 == identical distributions
+        # The WORSE of the two tool sub-signals. Spec 6A defines a tool call as name + args,
+        # so a run that matched on name and diverged on arguments has NOT matched -- and
+        # publishing 1.0 here would be a positive claim of sameness that is false. This is
+        # the field report/, scripts/drift_map.py and every persisted baseline read.
+        # [M] No published number moves: all 5 argument-bearing tool calls in the corpus are
+        # identical, and arg_tvd stays 0.0 whenever the gate is skipped.
+        tool_call_match=round(1.0 - max(tool_tvd, arg_tvd), 3),  # 1.0 == identical
+        tool_arg_match=round(1.0 - arg_tvd, 3) if args_compared else None,
         format_valid=not fmt_drift,
         refusal_delta=round(refusal_delta, 3),
         semantic_score=semantic_score,
@@ -269,6 +346,16 @@ def diff_scenario(
                 f"tool-call trajectory now violates the '{mode}' relation vs baseline "
                 f"{list(modal_sequence(baseline_traces, mode))}"
             )
+    if arg_regressed:
+        verdict = DiffVerdict.regression
+        hard_pvalues.append(arg_p)
+        reasons.append(
+            "tool-call arguments changed: "
+            + describe_argument_change(
+                modal_arg_sequence(baseline_traces, mode),
+                modal_arg_sequence(candidate_traces, mode),
+            )
+        )
     if refusal_regressed:
         verdict = DiffVerdict.regression
         hard_pvalues.append(refusal_p)
@@ -304,7 +391,7 @@ def diff_scenario(
     elif verdict == DiffVerdict.changed_minor:
         confidence = round(1.0 - min(minor_pvalues), 3)
     else:
-        confidence = round(min(tool_p, refusal_p, fmt_p, semantic_p), 3)
+        confidence = round(min(tool_p, arg_p, refusal_p, fmt_p, semantic_p), 3)
 
     explanation = "; ".join(reasons) if reasons else "no statistically significant behavior change"
 

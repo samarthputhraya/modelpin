@@ -10,6 +10,8 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from typing import Any, Optional
 
+from rich.markup import escape
+
 from modelpin.models import DiffResult, DiffVerdict
 
 # CLI uses ASCII tokens (+ rich color) so it never hits a UnicodeEncodeError on a
@@ -147,7 +149,7 @@ def render_cli(results: list[DiffResult], from_model: str, to_model: str, runs: 
     ]
     for r in regs + unmeasured + minors:
         lines.append(
-            f"{_CLI_MARK[r.verdict]} [bold]{r.scenario_id}[/]: {r.explanation} "
+            f"{_CLI_MARK[r.verdict]} [bold]{r.scenario_id}[/]: {escape(r.explanation)} "
             f"[dim](confidence {r.confidence:.2f})[/]"
         )
     if unchanged:

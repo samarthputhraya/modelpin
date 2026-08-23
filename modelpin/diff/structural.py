@@ -13,8 +13,9 @@ from __future__ import annotations
 
 from collections import Counter
 from collections.abc import Sequence
-from typing import Literal
+from typing import Any, Literal
 
+from modelpin.diff.argkey import canonical_arguments
 from modelpin.models import Trace
 
 MatchMode = Literal["strict", "unordered", "subset", "superset"]
@@ -29,7 +30,7 @@ def tool_call_sequence(trace: Trace) -> tuple[str, ...]:
     return tuple(tc.name for tc in trace.tool_calls)
 
 
-def canonical_sequence(seq: Sequence[str], mode: MatchMode = "strict") -> tuple[str, ...]:
+def canonical_sequence(seq: Sequence[Any], mode: MatchMode = "strict") -> tuple[Any, ...]:
     """Map a tool-call sequence to a hashable key under an *equivalence* mode.
 
     ``strict`` preserves order; ``unordered`` ignores it. Directional modes
@@ -43,7 +44,7 @@ def canonical_sequence(seq: Sequence[str], mode: MatchMode = "strict") -> tuple[
 
 
 def trajectory_match(
-    base_seq: Sequence[str], cand_seq: Sequence[str], mode: MatchMode = "strict"
+    base_seq: Sequence[Any], cand_seq: Sequence[Any], mode: MatchMode = "strict"
 ) -> bool:
     """Does the candidate trajectory still satisfy the baseline under ``mode``?
 
@@ -73,6 +74,65 @@ def modal_sequence(traces: list[Trace], mode: MatchMode = "strict") -> tuple[str
         return ()
     keys = Counter(canonical_sequence(tool_call_sequence(t), mode) for t in traces)
     return keys.most_common(1)[0][0]
+
+
+# --- the ARGUMENT signal (MP-04) --------------------------------------------------------
+# Deliberately a SECOND extraction rather than a richer tool_call_sequence. [M] Folding
+# arguments into the existing key does not sharpen the name signal, it DESTROYS it: the
+# permutation test is relabeling-invariant, so once per-run argument jitter makes every key
+# distinct, a total tool swap (web_search on all 5 baseline runs -> sql_query on all 5
+# candidate runs) reads `unchanged` at confidence 1.0 where names-only reads `regression` at
+# 0.992. Measured across the 286-pool enumeration, 42.98% of today's name-gate firings go
+# silent. Keeping the two signals separate is what makes this fix additive.
+
+
+def tool_arg_sequence(trace: Trace) -> tuple[tuple[str, str], ...]:
+    """The ordered tuple of (tool name, canonical argument payload) this run invoked.
+
+    Anchored to the NAME so that ``f(x=1), g(y=2)`` can never compare equal to
+    ``f(y=2), g(x=1)``.
+    """
+    return tuple((tc.name, canonical_arguments(tc.arguments)) for tc in trace.tool_calls)
+
+
+def modal_arg_sequence(traces: list[Trace], mode: MatchMode = "strict") -> tuple[Any, ...]:
+    """The most common (name, args) key across runs — for explanations, never for gating."""
+    if not traces:
+        return ()
+    keys = Counter(canonical_sequence(tool_arg_sequence(t), mode) for t in traces)
+    return keys.most_common(1)[0][0]
+
+
+def has_tool_arguments(traces: list[Trace]) -> bool:
+    """Did ANY run on this side record a non-empty argument payload?
+
+    When neither side has one the argument key is constant, so the second comparison is
+    never SPENT on a scenario that cannot use it. [M] That is the overwhelming majority:
+    5 of 65 non-empty tool calls across docs/reports/data/ + examples/ carry arguments.
+    """
+    return any(tc.arguments for t in traces for tc in t.tool_calls)
+
+
+def name_trajectory_is_stable(
+    baseline_traces: list[Trace], candidate_traces: list[Trace], mode: MatchMode = "strict"
+) -> bool:
+    """Is the tool-NAME trajectory unimodal on each side AND identical across them?
+
+    The precondition for running the argument gate at all, and the whole reason this fix is
+    false-positive-neutral. When the name trajectory is itself jittery, the NAME gate is
+    already the responsible signal and the argument key is only refining noise — letting
+    both gates fire on the same pool is what turns two tests into a raised error rate.
+
+    [M] Exhaustive enumeration, 286 pool shapes x C(10,5) split-halves = 72,072 relabelings
+    under a true null (2 names x 2 payloads):
+        names only (status quo)         912/72072 = 1.2654%   worst pool 12/252
+        + argument gate, no precondition           raises both the rate and the 12/252 ceiling
+        + argument gate, THIS precondition  916/72072 = 1.2710%   worst pool 12/252
+    +0.0056 percentage points, and the pre-existing worst-case ceiling is unchanged.
+    """
+    base_names = {canonical_sequence(tool_call_sequence(t), mode) for t in baseline_traces}
+    cand_names = {canonical_sequence(tool_call_sequence(t), mode) for t in candidate_traces}
+    return len(base_names) == 1 and base_names == cand_names
 
 
 def is_degenerate(trace: Trace) -> bool:
