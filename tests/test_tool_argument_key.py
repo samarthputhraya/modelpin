@@ -18,7 +18,11 @@ import pytest
 
 from modelpin.diff import ALPHA, MIN_TOOL_ARG_TVD, diff_scenario
 from modelpin.diff.argkey import canonical_arguments, describe_argument_change
-from modelpin.diff.stats import permutation_pvalue_distribution, total_variation_distance
+from modelpin.diff.stats import (
+    permutation_pvalue_distribution,
+    permutation_pvalue_mean,
+    total_variation_distance,
+)
 from modelpin.diff.structural import name_trajectory_is_stable, tool_arg_sequence
 from modelpin.models import DiffVerdict, ToolCall, Trace
 
@@ -193,7 +197,7 @@ def test_the_argument_gate_is_skipped_when_the_name_trajectory_is_unstable():
     assert result.signals.tool_arg_match is None, "the gate ran when it should have been skipped"
 
 
-def test_min_tool_arg_tvd_means_disjoint_at_every_supported_n():
+def test_min_tool_arg_tvd_means_disjoint_in_the_equivalence_modes():
     """MIN_TOOL_ARG_TVD = 1.0 is a structural rule, not a fitted dial, and its meaning must
     not drift with N. The rejected alternative -- halving ALPHA -- is [M] DEAD at N=4: a
     fully disjoint change scores p = 0.028571, which clears ALPHA but not ALPHA/2.
@@ -206,6 +210,29 @@ def test_min_tool_arg_tvd_means_disjoint_at_every_supported_n():
     # ... and the N=4 trap that ruled the alternative out.
     p4 = permutation_pvalue_distribution(["A"] * 4, ["B"] * 4)
     assert p4 <= ALPHA and p4 > ALPHA / 2
+
+
+def test_the_directional_modes_have_a_different_dead_zone():
+    """The equivalence modes go through permutation_pvalue_distribution (floor 2/C(2N,N));
+    the DIRECTIONAL modes go through permutation_pvalue_mean (floor 1/C(2N,N)). They are not
+    interchangeable, and a comment claiming one dead zone for both is wrong: `--match subset
+    --runs 3` is legal and fires at exactly p = ALPHA."""
+    assert permutation_pvalue_mean([0] * 3, [1] * 3) <= ALPHA
+    assert permutation_pvalue_distribution(["A"] * 3, ["B"] * 3) > ALPHA
+    # N=2 is dead in BOTH: neither statistic can reach ALPHA.
+    assert permutation_pvalue_mean([0] * 2, [1] * 2) > ALPHA
+    assert permutation_pvalue_distribution(["A"] * 2, ["B"] * 2) > ALPHA
+
+
+def test_an_empty_payload_is_never_compared_against_a_populated_one():
+    """`{}` is "not measured", not "measured empty" -- providers mint it on malformed args --
+    and it is disjoint from any real payload by construction. [M] Treating it as comparable
+    flipped 136 corpus verdicts, 136/136 cross-vendor."""
+    base = [_trace("o", [("f", {})], i) for i in range(5)]
+    cand = [_trace("n", [("f", {"order_id": "E-5500"})], i) for i in range(5)]
+    result = diff_scenario("s", "o", "n", base, cand)
+    assert result.signals.tool_arg_match is None, "the argument gate compared {} to a payload"
+    assert result.verdict == DiffVerdict.unchanged
 
 
 def test_arguments_are_anchored_to_their_tool_name():

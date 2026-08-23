@@ -104,13 +104,27 @@ def modal_arg_sequence(traces: list[Trace], mode: MatchMode = "strict") -> tuple
 
 
 def has_tool_arguments(traces: list[Trace]) -> bool:
-    """Did ANY run on this side record a non-empty argument payload?
+    """Did EVERY run on this side record at least one non-empty argument payload?
 
-    When neither side has one the argument key is constant, so the second comparison is
-    never SPENT on a scenario that cannot use it. [M] That is the overwhelming majority:
-    5 of 65 non-empty tool calls across docs/reports/data/ + examples/ carry arguments.
+    ANY is the wrong quantifier and it cost a 136-verdict false-positive sweep. ``{}`` is not
+    a payload VALUE, it is three different things wearing one key: a genuine no-argument call,
+    ``providers/openai.py``'s "partial/malformed args -- record the call, drop the payload",
+    and ``providers/google.py``'s non-dict fallback. ``ToolCall.arguments`` defaults to ``{}``,
+    so "not measured" and "measured empty" are INDISTINGUISHABLE in the data model.
+
+    That matters because ``{}`` against a populated payload is disjoint BY CONSTRUCTION -- it
+    scores TVD 1.0 exactly, clears the floor, and fires at maximum confidence. And because the
+    artifact is systematic per ADAPTER rather than random per run, the permutation test offers
+    literally no protection against it.
+
+    [M] Replaying the tracked corpus (2,240 comparisons, both trace caches x all ordered model
+    pairs x 4 match modes) with ANY: 34 argument-gate firings, 136 verdict flips, every one
+    `unchanged` -> `regression`, 136 of 136 CROSS-vendor and 0 same-vendor, firing in BOTH
+    directions on the same pair. With EVERY (this function): 0 firings, 0 flips. The MP-04
+    headline bug still fires either way. The cost is a false NEGATIVE when a payload is
+    dropped entirely, which is the safe direction. See ADR-0018 on "not measured" != "equal".
     """
-    return any(tc.arguments for t in traces for tc in t.tool_calls)
+    return bool(traces) and all(any(tc.arguments for tc in t.tool_calls) for t in traces)
 
 
 def name_trajectory_is_stable(

@@ -77,7 +77,10 @@ MIN_TOOL_TVD = 0.5
 #: payload any baseline run used." It was chosen over the obvious alternative -- halving ALPHA
 #: for the second gate -- because [M] that alternative's meaning is NOT STABLE IN N, and this
 #: engine has already shipped two comments stating guarantees that held only at the default N:
-#:     N=3  a fully disjoint change fires at neither ALPHA nor ALPHA/2 (p = 0.100000)
+#:     N=3  equivalence modes: a fully disjoint change fires at neither (p = 0.100000);
+#:          DIRECTIONAL modes differ -- they route through permutation_pvalue_mean, whose
+#:          floor is 1/C(2N,N) not 2/C(2N,N), so `--match subset --runs 3` fires at exactly
+#:          p = ALPHA. The dead zone is mode-dependent: equivalence N<=3, directional N<=2.
 #:     N=4  a fully disjoint change does NOT fire at ALPHA/2 at all (p = 0.028571 > 0.025)
 #:          -- ALPHA/2 silently disables this entire signal at a legal `runs` setting
 #:     N=5  ALPHA/2 coincides exactly with disjointness (the default, hence the trap)
@@ -92,6 +95,9 @@ MIN_TOOL_TVD = 0.5
 #: false-positive rate of this signal is unmeasured, and every number above is synthetic.
 #: Falsifier: MP-54's live tool scenarios at temperature > 0 flag one scenario whose argument
 #: change a human calls equivalent. fp-guardian protected.
+#: [M] The equality is exact for every disjoint shape through N=21; at N=22 a genuinely
+#: disjoint pool scores 0.9999999999999999 and the gate silently does NOT fire (0 of 199,836
+#: non-disjoint pools ever reached 1.0, so the drift is one-directional and false-NEGATIVE).
 MIN_TOOL_ARG_TVD = 1.0
 #: Ignore refusal-rate rises smaller than this even if "significant" (one run in three).
 MIN_REFUSAL_DELTA = 0.34
@@ -229,20 +235,40 @@ def diff_scenario(
     # arguments into the name key does not sharpen that signal, it DESTROYS it: the
     # permutation test is relabeling-invariant, so once per-run argument jitter makes every
     # key distinct, a total tool swap (web_search on all 5 baseline runs -> sql_query on all
-    # 5 candidate runs) flips from `regression` at 0.992 to `unchanged` at 1.0, and 42.98%
-    # of today's name-gate firings go silent.
+    # 5 candidate runs) flips from `regression` at 0.992 to `unchanged` at 1.0.
+    #
+    # [A] SYNTHETIC, and labelled as such because it was briefly mismarked [M]: across the
+    # 286-pool ENUMERATION 42.98% of name-gate firings go silent under the folded key. On the
+    # REAL corpus that figure is 0.00% (0 of 10), because no tracked scenario carries the
+    # run-to-run argument variance the enumeration assumes. The folded key is still correctly
+    # rejected, but on a different [M] number: it fires on 44 corpus cells against 10.
     #
     # The gate runs ONLY when the name trajectory is stable on both sides and identical
     # across them. When names are themselves jittery the NAME gate is already the
     # responsible signal, and letting both fire on one pool is what turns two tests into a
     # raised error rate. [M] That precondition is what keeps this fix false-positive-neutral:
     # 1.2654% -> 1.2710% over 72,072 exhaustive relabelings, worst pool unchanged at 12/252.
+    #
+    # It also requires EQUAL runs per side, which is reachable: cli.py replays the candidate at
+    # the current `runs` against a PERSISTED baseline, so `baseline --runs 5` then
+    # `check --runs 2` gives 5 vs 2. [M] The 72,072-relabeling figure above is conditioned on a
+    # fixed pool shape and structurally cannot see that regime; the UNCONDITIONAL true-null
+    # rate there is far worse -- 0.1953% at 5v5, but 1.9204% at 5v2 and 2.2968% at 8v2 (1 in
+    # 44), against a status quo of 0.0000% because arguments were not diffed at all. Everything
+    # stays under ALPHA, as a permutation test must, but "bounded by 5%" is not
+    # "false-positive-neutral". Until MP-54 prices that, the argument gate simply declines.
     arg_tvd = 0.0
     arg_p = 1.0
     arg_regressed = False
+    # AND, never OR: one side alone having arguments means the other side's `{}` becomes a
+    # comparable payload, and `{}` vs a populated payload is disjoint by construction. [M] The
+    # OR form fired on 34 corpus cells and flipped 136 verdicts, 136/136 cross-vendor.
     args_compared = (
-        has_tool_arguments(baseline_traces) or has_tool_arguments(candidate_traces)
-    ) and name_trajectory_is_stable(baseline_traces, candidate_traces, mode)
+        len(baseline_traces) == len(candidate_traces)
+        and has_tool_arguments(baseline_traces)
+        and has_tool_arguments(candidate_traces)
+        and name_trajectory_is_stable(baseline_traces, candidate_traces, mode)
+    )
     if args_compared:
         if mode in EQUIVALENCE_MODES:
             base_akeys = [canonical_sequence(tool_arg_sequence(t), mode) for t in baseline_traces]
@@ -310,8 +336,11 @@ def diff_scenario(
         # so a run that matched on name and diverged on arguments has NOT matched -- and
         # publishing 1.0 here would be a positive claim of sameness that is false. This is
         # the field report/, scripts/drift_map.py and every persisted baseline read.
-        # [M] No published number moves: all 5 argument-bearing tool calls in the corpus are
-        # identical, and arg_tvd stays 0.0 whenever the gate is skipped.
+        # [M] Corpus impact, measured by A/B replay rather than inferred from the census:
+        # with the argument gate correctly quantified (see has_tool_arguments) 0 of 2,240
+        # corpus comparisons change verdict, so no published number moves. An earlier draft
+        # asserted that from the census alone -- 5 arg-bearing calls, all identical -- and was
+        # WRONG, because the census cannot see the `{}`-vs-populated asymmetry.
         tool_call_match=round(1.0 - max(tool_tvd, arg_tvd), 3),  # 1.0 == identical
         tool_arg_match=round(1.0 - arg_tvd, 3) if args_compared else None,
         format_valid=not fmt_drift,
