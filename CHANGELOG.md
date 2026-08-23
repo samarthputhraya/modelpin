@@ -79,6 +79,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `init` honours its `scenarios_dir` (0.1.2 behaviour, unchanged) but now also prints how
   many scenarios that directory holds and where the config is, so an adopted config is
   visible before `mp baseline` acts on it.
+- **The detection arm of `scripts/fp_measurement.py` is now a pure, tested function, and it
+  counts provider errors instead of skipping them.** (Developer harness: `scripts/` ships in
+  neither the wheel nor the sdist, so nothing about the installed package changes.) The arm was
+  inline in `main()`, which needs a live provider, so no test reached it: `[M]` at `58c87dc`,
+  eight of nine mutants applied to that inline arm left the then-302-test suite green —
+  including `detected += int(caught)` -> `detected += 1`, which makes the harness print
+  `Detection: 3/3` for an engine that flagged nothing, and replacing the entire loop body with
+  `continue`, which makes it print `0/0`. The accounting now lives in `recall_outcome` /
+  `recall_tally` / `recall_report` / `recall_summary` plus a shared `build_row`, with 30 tests
+  over them — the same treatment the false-positive arm received in this release.
+  `[M]` **Those original nine cannot be re-run: the extraction deleted every line they mutate.**
+  A fresh **39-mutant** battery at the new anchors, covering all nine original defect classes,
+  kills **38**. The one survivor deletes a source *comment* (the rationale block above
+  `PERTURBATIONS`); comments are not pinned, and the vocabulary it explains is pinned
+  behaviourally instead. Three of those 38 close a hole that was **symmetric in the
+  false-positive arm and older than this change**: deleting either arm's per-scenario `print`
+  loop, or discarding its lines at the call site, left the whole suite green — the lines'
+  content was covered, their consumption was not. **The engine did not change** — `git diff`
+  over `modelpin/` for this work is empty, and no calibrated constant moved.
+  Three behaviour changes in the harness itself. A missed perturbation, which was already
+  labelled `MISSED` per scenario and already counted in the denominator, is now also counted out
+  in the summary with a note saying a miss is never an exclusion — and saying *why*: the harness
+  cannot tell a candidate that resisted the injected instruction from an engine that is dead, so
+  it always counts the miss and asserts nothing about whether behaviour changed (ADR-0022,
+  whose closing rationale this corrects; ADR-0023). A run where every perturbed scenario errored,
+  or abstained, now prints a banner saying so instead of a bare `0/0`. And provider errors,
+  previously printed as they occurred but left out of the accounting, are now counted and
+  published beside the fraction.
+  The arm also stops calling the injected instructions "regressions" — `[S]`
+  `docs/fp-measurement.md:74` (2026-08-23) records that 1 of the 3 in `PERTURBATIONS`
+  (`decline_pii`) produced no behaviour change on the run of record because the model resisted
+  it, so whether a perturbation is a regression is the thing being measured, not a premise.
+  `README.md:227` already used this vocabulary; the harness now matches it.
 
 ### Added
 - **`insufficient_evidence` verdict, and exit code 3.** A scenario where **at least half**

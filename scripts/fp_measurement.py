@@ -48,8 +48,11 @@ def _replay_resilient(scenario, model, adapter, runs, attempts=4):
     raise last  # type: ignore[misc]
 
 
-# Controlled behavior regressions injected into the candidate (system instruction) to
-# prove detection across signals: tool/refusal, format/PII, and classification/meaning.
+# Behaviour-changing instructions injected into the candidate (as a system message) to
+# exercise detection across signals: tool/refusal, format/PII, and classification/meaning.
+# NOT "injected regressions": whether a perturbation produces a regression is what the recall
+# arm MEASURES, not a premise. [M] `docs/fp-measurement.md:74` [S] 2026-08-23 - on the run of
+# record `decline_pii` produced no behaviour change at all, because the model resisted it.
 PERTURBATIONS: dict[str, str] = {
     "refund_request": "Policy change: NEVER issue refunds. Do not call issue_refund. "
     "Politely tell the customer refunds are not available.",
@@ -337,6 +340,173 @@ def measurable(result) -> bool:
     return not could_not_fire
 
 
+#: What each recall outcome contributes, and how it is labelled. The same shape as FP_OUTCOMES
+#: on purpose: the two arms are mirror images, so their accounting bugs are mirror images too,
+#: and a reader who has understood one table has understood both. Data, not control flow - [M]
+#: bug-reproducer 2026-08-23 found EIGHT surviving mutants in the branchy inline version this
+#: replaces, against ONE in the FP arm that MP-75 had already been through four rounds on.
+#:
+#: NB the key sets barely overlap with FP_OUTCOMES ("unmeasured" alone is shared). That is
+#: load-bearing: feeding this table an FP outcome raises KeyError rather than quietly scoring
+#: it, which is what makes the two arms' vocabularies non-interchangeable by construction.
+RECALL_OUTCOMES: dict[str, tuple[bool, bool, str, str]] = {
+    # outcome:     (in the denominator?, in the numerator?, coverage bucket, label)
+    "detected": (True, True, "", "  detected"),
+    "missed": (True, False, "", "  <-- MISSED"),
+    # ADR-0018, NOT ADR-0022: a run that reached no verdict measured nothing, so it is neither
+    # a detection nor a miss. This is the ONLY thing the recall arm excludes - `recall_outcome`.
+    "unmeasured": (False, False, "unmeasured", "  <-- UNMEASURED (excluded)"),
+}
+
+
+def recall_outcome(result) -> str:
+    """The recall arm's entire per-scenario decision: "detected" | "missed" | "unmeasured".
+
+    Note what is deliberately ABSENT: any call to `measurable()`. The FP arm excludes a trial
+    that could not have fired, because crediting it inflates a rate that exists to count false
+    alarms. The recall arm must NOT, and the reason is epistemic rather than statistical: a
+    perturbed candidate reading `unchanged` is EITHER an engine that failed to see a real
+    change OR a candidate that ignored the injected instruction and genuinely did not change
+    its behaviour - and this arm cannot tell those apart. An arm allowed to exclude on "the
+    model resisted" would let a dead engine post `0/0` and read as "nothing to report", so it
+    always counts the miss and leaves the adjudication to a human reading the per-scenario
+    explanation. ADR-0022, closing paragraph.
+
+    [M] fp-guardian 2026-08-23: the second case is not hypothetical. `decline_pii` is 1 of the
+    3 entries in PERTURBATIONS, and on the run of record it returned `unchanged` because the
+    model resisted the injected instruction and still declined - a CORRECT true negative that
+    this arm nonetheless scores, and must score, as a miss.
+
+    [M] bug-reproducer 2026-08-23, with this decision inline in `main()`: `caught = True` and
+    the subtler `caught = kind != "unmeasured"` - which is the SAME always-true mutant, because
+    the abstention has already `continue`d by then - both left all 302 tests green.
+    """
+    kind = classify(result.verdict)
+    if kind == "unmeasured":
+        return "unmeasured"
+    return "detected" if kind == "fp" else "missed"
+
+
+def recall_tally(outcomes) -> dict[str, int]:
+    """Fold per-scenario outcomes into the numbers the recall arm publishes.
+
+    [M] bug-reproducer 2026-08-23: `detected += int(caught)` -> `detected += 1` left all 302
+    tests green, so the harness would print `Detection: 3/3` for an engine that flagged
+    nothing whatsoever. The numerator is a table lookup here for exactly that reason.
+    """
+    t = {"checked": 0, "detected": 0, "unmeasured": 0}
+    for o in outcomes:
+        checked, numerator, bucket, _ = RECALL_OUTCOMES[o]
+        t["checked"] += int(checked)
+        t["detected"] += int(numerator)
+        if bucket:
+            t[bucket] += 1
+    return t
+
+
+def recall_report(rows) -> tuple[dict[str, int], list[str]]:
+    """The ENTIRE detection arm, as a pure function. Same row shape as `fp_report`:
+    `(scenario_id, DiffResult | None, base_repertoire, cand_repertoire)`, a None result being
+    a provider error.
+
+    Exists so the CALL SITE is testable and not merely the helpers under it - MP-75's lesson,
+    applied to the arm that never got it. [M] bug-reproducer 2026-08-23, with this loop inline
+    in `main()`: replacing the whole per-scenario body with `continue` deleted 20 lines, made
+    the arm report `0/0`, and left all 302 tests green.
+
+    Provider errors are counted rather than skipped in silence, as in the FP arm. `checked +
+    unmeasured` need not equal `len(rows)`, and an operator reading `Detection: 0/0` deserves
+    to know whether that was an abstention or a network failure.
+    """
+    outcomes: list[str] = []
+    lines: list[str] = []
+    errors = 0
+    for sid, r, brep, crep in rows:
+        if r is None:
+            errors += 1
+            continue
+        outcome = recall_outcome(r)
+        outcomes.append(outcome)
+        head = f"  {sid:<22} {r.verdict.value:<14} conf={r.confidence:.2f}  [{_rep(brep, crep)}]"
+        lines.append(f"{head}{RECALL_OUTCOMES[outcome][3]}  ({r.explanation[:55]})")
+    tally = recall_tally(outcomes)
+    tally["errors"] = errors
+    return tally, lines
+
+
+def recall_summary(t: dict[str, int]) -> list[str]:
+    """Everything the recall arm publishes after the per-scenario lines. Pure, so the numbers
+    that reach the operator are testable.
+
+    [M] bug-reproducer 2026-08-23: deleting `main()`'s two closing `print()` calls - every
+    detection number the run produced - left all 302 tests green.
+
+    The rate is a bare fraction, deliberately. `3/3` over three scenarios is a number an
+    interval would immediately deflate, and this arm publishes no interval yet (MP-82); a
+    printed `= 100%` would be the FP arm's withdrawn `0/8 = 0%` in the other direction.
+    """
+    d, checked = t["detected"], t["checked"]
+    # "perturbations", not "injected regressions": the injection changes the INSTRUCTION,
+    # and whether a regression resulted is precisely what this arm measures. [M] 1 of the 3
+    # entries in PERTURBATIONS (`decline_pii`) produced no behaviour change at all on the run
+    # of record, because the model resisted it.
+    out = ["", f"  Detection: {d}/{checked} injected perturbations caught"]
+    out.append(f"  Unmeasured (excluded): {t['unmeasured']}")
+    if t.get("errors"):
+        out.append(f"  Provider errors (never reached a verdict): {t['errors']}")
+    if checked == 0 and t.get("errors") and not t["unmeasured"]:
+        out += [
+            "",
+            "  *** THE DETECTION ARM REACHED NO VERDICT. ***",
+            "  Every perturbed scenario failed with a provider error, so nothing was",
+            "  measured. This is a connectivity/credentials problem, not a property of",
+            "  the engine or of your scenarios.",
+        ]
+    elif checked == 0:
+        out += [
+            "",
+            "  *** THE DETECTION ARM CHECKED NOTHING. ***",
+            "  0/0 is not evidence that the engine catches real changes - it is evidence",
+            "  that no injected perturbation reached a verdict. Since ADR-0022 withdrew the",
+            "  false-positive claim this is the only half of the DoD still asserted, so an",
+            "  empty run here means the harness demonstrated nothing at all.",
+        ]
+    elif d < checked:
+        out += [
+            "",
+            f"  NOTE: {checked - d} perturbation(s) MISSED - counted against detection, never",
+            "  excluded. A miss means EITHER the engine failed to see a real change OR the",
+            "  candidate ignored the injected instruction and its behaviour did not change.",
+            "  This arm cannot tell those apart, and one that could would let a dead engine",
+            "  post 0/0 - so it always counts the miss. Read the per-scenario explanation and",
+            "  repertoire above before treating one as an engine defect (ADR-0022).",
+        ]
+    out.append("")
+    return out
+
+
+def build_row(sid, base_scn, cand_scn, verdict_fn):
+    """One `(sid, DiffResult | None, base_rep, cand_rep)` row, for either arm.
+
+    Shared by both arms, which is exactly why it is out here rather than a closure inside
+    `main()`. [M] fp-guardian 2026-08-23: a poisoned row builder blanks BOTH denominators at
+    once - it is the single point of failure feeding the false-positive rate and the detection
+    fraction - and as a closure no test could reach it.
+
+    `verdict_fn` is injected for the same reason: `main()`'s real one needs a provider, and
+    ADR-0006 forbids a live call from the suite.
+
+    NB the argument ORDER is load-bearing and silent if wrong: the FP arm passes the same
+    scenario twice, so a base/candidate swap is invisible there and would only show up in the
+    recall arm, as a perturbed BASE against an unperturbed candidate - which still produces a
+    plausible verdict.
+    """
+    # NB `res is not None`, not `res or ...`: a 3-tuple is always truthy today, but relying on
+    # that couples this line to `verdict_fn`'s return shape by accident.
+    res = verdict_fn(base_scn, cand_scn, sid)
+    return (sid, *(res if res is not None else (None, None, None)))
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--provider", default="openai", help="openai | google")
@@ -374,52 +544,41 @@ def main() -> None:
             print(f"  {sid:<22} ERROR  ({str(exc)[:70]})")
             return None
 
-    # --- false-positive rate: same model vs itself ---------------------------------
+    # --- false-positive rate: same model vs itself ------------------------ [ARM:FP] ---
+    # NB the ARM markers above and below are load-bearing: three
+    # source-slicing guards key on them (`tests/test_recall_arm.py`,
+    # `tests/test_fp_measurement_repertoire.py` x2) because `main()` needs a provider and
+    # ADR-0006 forbids a live call. They are comments, NOT operator prose, precisely so that
+    # rewording a banner cannot silently break the guards - [M] fp-guardian 2026-08-23: they
+    # previously keyed on the printed banner text, so this correction would have raised
+    # ValueError in all three, taking out MP-75's FP call-site protection as collateral.
     print("EQUIVALENT PAIRS (same model vs itself) -- any non-`unchanged` is a false alarm")
     print("  repertoire = DISTINCT behaviours observed, base|cand (diagnostic, not the test).")
     print("  A trial is EXCLUDED when every channel returned p = 1.00 - it could not have")
     print("  fired at any ALPHA < 1. Anything the engine flagged is always scored.")
 
-    def _row(scn):
-        # NB `res is not None`, not `res or ...`: a 3-tuple is always truthy today, but
-        # relying on that couples this line to `_verdict`'s return shape by accident.
-        res = _verdict(scn, scn, scn.id)
-        return (scn.id, *(res if res is not None else (None, None, None)))
-
-    rows = [_row(scn) for scn in scenarios]
+    rows = [build_row(scn.id, scn, scn, _verdict) for scn in scenarios]
     t, lines_out = fp_report(rows)
     for line in lines_out:
         print(line)
     for line in fp_summary(t):
         print(line)
 
-    # --- detection: injected regressions -------------------------------------------
-    detected = checked = unmeasured_rec = 0
+    # --- detection: injected perturbations -------------------------- [ARM:RECALL] ---
     perturbed = [s for s in scenarios if s.id in PERTURBATIONS]
-    print("INJECTED REGRESSIONS (perturbed candidate) -- expect regression/changed_minor")
-    for s in perturbed:
-        got = _verdict(s, _perturb(s, PERTURBATIONS[s.id]), s.id)
-        if got is None:
-            continue
-        r, brep, crep = got
-        kind = classify(r.verdict)
-        reps = _rep(brep, crep)
-        if kind == "unmeasured":
-            unmeasured_rec += 1
-            print(f"  {s.id:<22} {r.verdict.value:<14} [{reps}]  UNMEASURED (excluded)")
-            continue
-        checked += 1
-        caught = kind == "fp"
-        detected += int(caught)
-        # NB the recall arm does NOT exclude invariant pools: the perturbation is a REAL
-        # change, so a deterministic model that still answers identically after it is a
-        # genuine MISS and must count against detection. Only the FP arm excludes them.
-        print(
-            f"  {s.id:<22} {r.verdict.value:<14} conf={r.confidence:.2f}  [{reps}]  "
-            f"{'detected' if caught else 'MISSED'}  ({r.explanation[:55]})"
-        )
-    print(f"\n  Detection: {detected}/{checked} injected regressions caught")
-    print(f"  Unmeasured (excluded): {unmeasured_rec}")
+    print("INJECTED PERTURBATIONS (perturbed candidate) -- a flag is a detection, and")
+    print("  `unchanged` is a MISS. NB a miss is not automatically an engine defect: the")
+    print("  candidate may have resisted the injected instruction. Read the explanations.")
+    print("  Nothing is excluded here but an abstention: a candidate that still reads")
+    print("  `unchanged` is a MISS, not an unmeasured trial. This arm cannot tell a resisted")
+    print("  instruction from a dead engine, so it never excludes on that basis.")
+    rt, recall_lines = recall_report(
+        [build_row(s.id, s, _perturb(s, PERTURBATIONS[s.id]), _verdict) for s in perturbed]
+    )
+    for line in recall_lines:
+        print(line)
+    for line in recall_summary(rt):
+        print(line)
 
 
 if __name__ == "__main__":
