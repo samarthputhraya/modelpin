@@ -241,6 +241,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   could not be done by swapping a key.
   `[M]` The catalogues differ too: `gemini-2.5-flash` is `404 "no longer available to new users"`
   on AI Studio and still served on Vertex.
+- **Tool-call *arguments* are now compared, not just tool names.** Up to and including 0.1.2
+  the behavioral diff read only the tool-call *names*, so a candidate that called the right
+  tool with a catastrophically wrong argument — `issue_refund(amount=49.99)` becoming
+  `issue_refund(amount=4999.00)` — was reported as `unchanged` at **confidence 1.00**.
+  Nothing else caught it: with the output text identical, the semantic judge short-circuits
+  and is never invoked, so the tool signal was the only place an argument could register.
+  The new signal is deliberately narrow, because widening a detector is how a tool starts
+  crying wolf. It fires only when the two sides' argument payloads are fully **disjoint** (no
+  run on one side used a payload any run on the other used), and only when the tool-name
+  trajectory is stable across both sides, both sides recorded arguments on every run, and
+  both used the same `--runs`. A single odd run is still noise. `DiffSignals` gains
+  `tool_arg_match`, where `null` means the argument comparison did not run — which is not
+  the same as `1.0`.
 - **`insufficient_evidence` verdict, and exit code 3.** A scenario where **at least half**
   of one side's runs recorded no behaviour — no output, no tool call, no refusal — now
   abstains instead of reporting `unchanged`. Below that threshold (e.g. 2 of 5) the run
