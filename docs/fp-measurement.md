@@ -35,9 +35,12 @@ python scripts/fp_measurement.py --model gpt-4o-mini --runs 5     # judged, full
 
 **Headline (live, judged, held-out): 0 false alarms in 0 scored trials — this run did not measure the false-positive rate.**
 
-> **Corrected 2026-08-23 (MP-75).** This line previously read *"0 false alarms in 8 > scored trials"*. Those 8 trials were not scored trials. The harness now excludes a > trial in which the engine measured no effect on any channel — it had no opportunity > to fire, so counting it as a passed trial credits the engine for a test it could not > have failed. Re-run today, the same command prints `0/0 = n/a` and
-> `*** THIS RUN MEASURED NOTHING ***`. The engine did not change; the accounting did.
-> The paragraphs below already said as much — the headline had not caught up.
+> **Corrected 2026-08-23 (MP-75).** This line previously read *"0 false alarms in 8 scored
+> trials"*. Those 8 were not scored trials. The harness now excludes a trial in which nothing
+> could have fired at ALPHA — counting it as a passed trial credits the engine for a test it
+> could not fail. Re-run today, the same command prints `0/0 = n/a` and
+> `*** THIS RUN MEASURED NOTHING ***`. The engine did not change; the accounting did. The
+> paragraphs below already said as much — the headline had not caught up. See ADR-0022.
 
 Read as `0/8`, that was an *observation, not a rate*: the exact one-sided 95% upper bound on
 0/8 is **~31%**, consistent with a true false-positive rate anywhere from 0% to about a third.
@@ -57,7 +60,8 @@ Closing that is [MP-54]; until it lands, no stronger claim than the sentence abo
 ```
 cancel_subscription  classify_sentiment  decline_pii          extract_total
 format_contact_json  order_status        refund_request       summarize_ticket
-                          all 8 -> unchanged  (0 false positives)
+                          all 8 -> unchanged at confidence 1.00
+                          => 0 SCORED trials: none could have fired (MP-75)
 ```
 
 **Detection: every perturbation that actually changed behavior was caught.**
@@ -116,7 +120,7 @@ The semantic judge **now escalates a consistent meaning change to a CI-failing
 `regression`** (previously it was capped at `changed_minor` because `MIN_SEMANTIC_DELTA`
 was an uncalibrated guess). The promotion is backed by a labeled calibration set —
 [`examples/calibration/`](../examples/calibration/), **deliberately distinct from the
-held-out suite above** so this tuning does not leak into the 0/8 claim — and two raw-data
+held-out suite above** so this tuning does not leak into the held-out result — and two raw-data
 runs recorded under [`examples/calibration/results/`](../examples/calibration/results/):
 
 - **Independent-judge run (the evidence of record):** candidate `gpt-3.5-turbo`, judge
@@ -129,10 +133,15 @@ runs recorded under [`examples/calibration/results/`](../examples/calibration/re
   kept only as a cross-check, not the justification.
 
 **Post-promotion held-out re-validation:** re-ran `fp_measurement.py --model gpt-4o-mini
---runs 5` with the semantic→`regression` promotion **live** → held-out FP rate **still
-0/8**, and detection *improved* (`classify_sentiment` went `changed_minor` → `regression`).
-So FP-safety at the 0.5 floor holds across **three independent conditions** (self-judge
-calibration, independent-judge calibration, held-out suite).
+--runs 5` with the semantic→`regression` promotion **live** → no held-out verdict moved, and
+detection *improved* (`classify_sentiment` went `changed_minor` → `regression`).
+
+> **Corrected 2026-08-23 (MP-75).** This previously read "held-out FP rate **still 0/8**" and
+> concluded FP-safety holds across **three** independent conditions. Under the corrected
+> accounting the held-out suite contributed **0 scored trials**, so it is not independent
+> evidence here. The floor rests on **two** conditions — self-judge calibration and
+> independent-judge calibration. `MIN_SEMANTIC_DELTA` is unchanged; only the claimed evidence
+> for it is.
 
 **Known limitations (honest — do not oversell):** the calibration set is small (6 + 6
 pairs), the perturbations are synthetic system-prompt instructions (extreme, not subtle

@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import time
 
 try:  # corporate-proxy environments: make the SDK trust the OS cert store
@@ -78,12 +79,55 @@ _FLAGGED = (DiffVerdict.regression, DiffVerdict.changed_minor)
 
 
 def classify(verdict: DiffVerdict) -> str:
-    """ "fp" | "clean" | "unmeasured" - the only classifier either arm may use."""
+    """ "fp" | "clean" | "unmeasured" - the only classifier either arm may use.
+
+    TOTAL over DiffVerdict, deliberately. A bare `return "clean"` fallthrough would silently
+    absorb a future fifth verdict into the denominator as a passed trial (diluting the FP
+    rate) and as a MISS in the recall arm. `report/__init__.py:43-55` was rewritten for
+    exactly this failure after a fourth verdict landed in no bucket - ADR-0018.
+    """
     if verdict in _FLAGGED:
         return "fp"
     if verdict == DiffVerdict.insufficient_evidence:
         return "unmeasured"
-    return "clean"
+    if verdict == DiffVerdict.unchanged:
+        return "clean"
+    raise ValueError(
+        f"{verdict!r} is in no false-positive bucket. Adding a DiffVerdict means deciding "
+        "whether it is a false alarm, a clean trial, or an abstention - it must not default."
+    )
+
+
+def upper_bound_95(k: int, n: int, alpha: float = 0.05) -> float:
+    """One-sided 95% Clopper-Pearson upper bound on a rate of k failures in n trials.
+
+    [M] fp-guardian 2026-08-23: the closed form `1 - alpha**(1/n)` is this bound ONLY at
+    k=0. Applied at k>0 it understates badly - and above k/n ~ 0.31 it returns a bound BELOW
+    the observed rate, a self-contradicting number about the north-star metric, in the
+    direction that flatters it:
+
+        k/n    shipped closed form    correct
+        0/8         31.2%             31.2%
+        1/8         31.2%             47.1%
+        4/8         31.2%             80.7%   <- below the 50% observed
+
+    That is not a corner case here. This harness exists to be pointed at tool-using
+    scenarios at temperature > 0, which is precisely the surface where k > 0 is expected.
+    """
+    if n <= 0 or k >= n:
+        return 1.0
+
+    def cdf(pp: float) -> float:
+        return sum(math.comb(n, i) * pp**i * (1 - pp) ** (n - i) for i in range(k + 1))
+
+    lo, hi = 0.0, 1.0
+    for _ in range(200):
+        mid = (lo + hi) / 2
+        if cdf(mid) > alpha:
+            lo = mid
+        else:
+            hi = mid
+    return (lo + hi) / 2
 
 
 def repertoire(traces: list) -> dict[str, int]:
@@ -94,10 +138,14 @@ def repertoire(traces: list) -> dict[str, int]:
     `measurable()`, and the block comment there for why an earlier version of this file got
     that wrong in a way that deleted real false positives.
 
-    Text is compared VERBATIM. The coarsest gating signal is byte-exact and case-SENSITIVE
-    (`structural.py:123-126` `violates_text_assertions` does `s in out`), so a canonicalising
-    diagnostic would report `text: 1` for a pair the engine flags at confidence 0.996. A
-    diagnostic may be finer than the engine; it must never be coarser.
+    Text is compared VERBATIM, because the coarsest gating signal is byte-exact and
+    case-SENSITIVE (`structural.py:123-126` `violates_text_assertions` does `s in out`). NB
+    this is called PER SIDE, so it earns its keep on WITHIN-side jitter: canonicalising would
+    report `text: 1` for a side whose runs differ only by case or spacing, which the assertion
+    signal can flag. It does not help on the cross-side case - a base of all "Order shipped"
+    against a candidate of all "order shipped" prints `text 1|1` either way, and is exactly
+    why this function decides nothing. A diagnostic may be finer than the engine, never
+    coarser.
 
     Counted per channel because they fail independently. NOTE `args` is a strict refinement
     of `tools` (it carries the name too), and on this branch NO gating signal reads tool
@@ -117,12 +165,18 @@ def repertoire(traces: list) -> dict[str, int]:
 #: What each outcome contributes, and how it is labelled. Data, not control flow: the FP arm
 #: has no branch left to delete, which is what makes the accounting testable. [M] fp-guardian
 #: killed an inline version of this loop with `if False:` and 271 tests stayed green.
-FP_OUTCOMES: dict[str, tuple[bool, bool, str]] = {
-    # outcome:      (in the denominator?, in the numerator?, label)
-    "fp": (True, True, "  <-- FALSE POSITIVE"),
-    "clean": (True, False, ""),
-    "no-effect": (False, False, "  <-- NO EFFECT MEASURED, could not have fired"),
-    "unmeasured": (False, False, "  <-- UNMEASURED"),
+FP_OUTCOMES: dict[str, tuple[bool, bool, str, str]] = {
+    # outcome:      (in the denominator?, in the numerator?, coverage bucket, label)
+    "fp": (True, True, "", "  <-- FALSE POSITIVE"),
+    "clean": (True, False, "", ""),
+    # [M] fp-guardian: the label says ALPHA, not "no effect". `unchanged` at confidence 1.0
+    # is strictly BROADER than "nothing moved" - the one-sided mean statistic returns p=1.0
+    # on a refusal-rate DROP (`stats.py:91-92`), and at N=5 the tool channel's p is exactly
+    # 1.0 across the whole |i-j| <= 1 band: 16 of 36 cells, 10 of which genuinely differ.
+    # Every one of them has p=1.0 > ALPHA, so the exclusion stays sound - but calling it
+    # "no effect measured" would mislead the next reader about WHY.
+    "no-effect": (False, False, "no_effect", "  <-- could not have fired at ALPHA=0.05"),
+    "unmeasured": (False, False, "unmeasured", "  <-- UNMEASURED"),
 }
 
 
@@ -135,14 +189,91 @@ def fp_tally(outcomes) -> dict[str, int]:
     """
     t = {"scored": 0, "false_positives": 0, "no_effect": 0, "unmeasured": 0}
     for o in outcomes:
-        scored, numerator, _ = FP_OUTCOMES[o]
+        scored, numerator, bucket, _ = FP_OUTCOMES[o]
         t["scored"] += int(scored)
         t["false_positives"] += int(numerator)
-        if o == "no-effect":
-            t["no_effect"] += 1
-        elif o == "unmeasured":
-            t["unmeasured"] += 1
+        if bucket:
+            t[bucket] += 1
     return t
+
+
+def _rep(b, c) -> str:
+    """Compact per-side repertoire, e.g. `tools 1|1 args 3|2 text 1|1`."""
+    return " ".join(f"{k} {b[k]}|{c[k]}" for k in ("tools", "args", "text"))
+
+
+def fp_summary(t: dict[str, int]) -> list[str]:
+    """Everything the FP arm publishes after the per-scenario lines. Pure, so the numbers
+    that reach the operator are testable.
+
+    [M] fp-guardian killed two mutants that lived here while this was inline in `main()`:
+    reverting the interval to the closed form `1 - alpha**(1/n)` (wrong for every k > 0),
+    and deleting the interval line outright. Both left the suite green. The helpers were
+    pinned; nothing checked that the summary USED them.
+    """
+    fp, scored = t["false_positives"], t["scored"]
+    rate = f"{fp/scored:.0%}" if scored else "n/a"
+    out = ["", f"  False-positive rate: {fp}/{scored} = {rate}"]
+    # A point estimate overstates what a handful of trials can establish, and MP-75 makes
+    # `scored` smaller and more variable - so the interval carries MORE weight here, not less.
+    if scored:
+        ub = upper_bound_95(fp, scored)
+        out.append(
+            f"  95% upper bound on the true rate: {ub:.1%} "
+            f"(one-sided Clopper-Pearson, n={scored})"
+        )
+    # Coverage is published ALONGSIDE the rate, never folded into it: a rate computed over a
+    # silently shrinking denominator is how a metric flatters itself.
+    out.append(f"  Unmeasured (excluded from the rate): {t['unmeasured']}")
+    out.append(f"  Could not have fired at ALPHA (excluded from the rate): {t['no_effect']}")
+    if t.get("errors"):
+        out.append(f"  Provider errors (never reached a verdict): {t['errors']}")
+    if scored == 0:
+        out += [
+            "",
+            "  *** THIS RUN MEASURED NOTHING. ***",
+            "  No trial could have fired at ALPHA, so 0/0 is not evidence that the",
+            "  false-positive rate is low - it is evidence that nothing was tested. Use",
+            "  tool-using scenarios at temperature > 0 (examples/calibration/arg_*.json)",
+            "  -- but those measure nothing either until MP-04 lands an argument signal:",
+            "  today no gating signal reads tool arguments at all. See ADR-0022.",
+        ]
+    elif t["no_effect"]:
+        out += [
+            "",
+            f"  NOTE: the rate is over the {scored} scenario(s) in which something could have",
+            f"  fired; {t['no_effect']} could not, and are excluded.",
+        ]
+    out.append("")
+    return out
+
+
+def fp_report(rows) -> tuple[dict[str, int], list[str]]:
+    """The ENTIRE false-positive arm, as a pure function. `rows` is an iterable of
+    `(scenario_id, DiffResult | None, base_repertoire, cand_repertoire)`; a None result is a
+    provider error.
+
+    Exists so the CALL SITE is testable, not just the helpers under it. [M] fp-guardian
+    2026-08-23, second review: with this loop inline in `main()`, substituting
+    `classify(r.verdict)` for `fp_outcome(r)` - a one-token change that restores the exact
+    pre-MP-75 accounting and brings `0/8 = 0%` straight back - left all 281 tests green,
+    because `classify` returns three strings that are all valid keys of FP_OUTCOMES. Pinning
+    the decision function was not enough; the thing that CALLS it has to be pinned too.
+    """
+    outcomes: list[str] = []
+    lines: list[str] = []
+    errors = 0
+    for sid, r, brep, crep in rows:
+        if r is None:
+            errors += 1
+            continue
+        outcome = fp_outcome(r)
+        outcomes.append(outcome)
+        head = f"  {sid:<22} {r.verdict.value:<14} conf={r.confidence:.2f}  [{_rep(brep, crep)}]"
+        lines.append(f"{head}{FP_OUTCOMES[outcome][3]}")
+    tally = fp_tally(outcomes)
+    tally["errors"] = errors
+    return tally, lines
 
 
 def fp_outcome(result) -> str:
@@ -153,9 +284,12 @@ def fp_outcome(result) -> str:
     inline in `main()`, replacing it with `if False:` - deleting the entire point of MP-75 -
     left all 271 tests green. Helpers were pinned; the thing that used them was not.
 
-    Ordering is load-bearing. `unmeasured` (ADR-0018) is checked FIRST, then flagged verdicts,
-    and only then the no-effect exclusion - so no path can drop a flagged verdict out of the
-    rate. See `measurable()` for why that guarantee is the whole safety property.
+    `unmeasured` (ADR-0018) is checked first, then flagged verdicts, then the exclusion. [M]
+    fp-guardian: this order is not currently load-bearing - the three `classify` outcomes map
+    to disjoint verdicts, so hoisting the exclusion above the flagged check changes nothing
+    and no test moves. Keep the order anyway: it makes the safety property (a flagged verdict
+    can never reach the exclusion) true by reading as well as by construction, which is what a
+    future maintainer will rely on. See `measurable()`.
     """
     kind = classify(result.verdict)
     if kind == "unmeasured":
@@ -225,53 +359,17 @@ def main() -> None:
             print(f"  {sid:<22} ERROR  ({str(exc)[:70]})")
             return None
 
-    def _rep(b, c) -> str:
-        """Compact per-side repertoire, e.g. `tools 1|1 args 3|2 text 1|1`."""
-        return " ".join(f"{k} {b[k]}|{c[k]}" for k in ("tools", "args", "text"))
-
     # --- false-positive rate: same model vs itself ---------------------------------
     print("EQUIVALENT PAIRS (same model vs itself) -- any non-`unchanged` is a false alarm")
     print("  repertoire = DISTINCT behaviours observed, base|cand (diagnostic, not the test).")
     print("  A trial is EXCLUDED when the engine measured no effect on any channel, i.e. it")
     print("  had no opportunity to fire. Anything the engine flagged is always scored.")
-    outcomes = []
-    for s in scenarios:
-        got = _verdict(s, s, s.id)
-        if got is None:
-            continue
-        r, brep, crep = got
-        outcome = fp_outcome(r)
-        outcomes.append(outcome)
-        head = f"  {s.id:<22} {r.verdict.value:<14} conf={r.confidence:.2f}  [{_rep(brep, crep)}]"
-        print(f"{head}{FP_OUTCOMES[outcome][2]}")
-    t = fp_tally(outcomes)
-    false_positives, scored = t["false_positives"], t["scored"]
-    unmeasured, invariant = t["unmeasured"], t["no_effect"]
-    rate = f"{false_positives/scored:.0%}" if scored else "n/a"
-    print(f"\n  False-positive rate: {false_positives}/{scored} = {rate}")
-    # A point estimate overstates what a handful of trials can establish, and THIS change
-    # makes `scored` smaller and more variable - so the interval carries more weight here,
-    # not less. docs/fp-measurement.md:40 already says report `0/8`, never `0%`.
-    if scored:
-        upper = 1 - 0.05 ** (1 / scored)
-        print(f"  95% upper bound on the true rate: {upper:.1%} (one-sided, n={scored})")
-    # Coverage is published ALONGSIDE the rate, never folded into it: a rate computed over a
-    # silently shrinking denominator is how a metric flatters itself.
-    print(f"  Unmeasured (excluded from the rate): {unmeasured}")
-    print(f"  No observed variance (excluded from the rate): {invariant}")
-    if scored == 0:
-        print(
-            "\n  *** THIS RUN MEASURED NOTHING. ***\n"
-            "  Every scenario was unmeasured or invariant, so 0/0 is not evidence that the\n"
-            "  false-positive rate is low - it is evidence that nothing was tested. Use\n"
-            "  tool-using scenarios at temperature > 0 (examples/calibration/arg_*.json)."
-        )
-    elif invariant:
-        print(
-            f"\n  NOTE: the rate is over the {scored} scenario(s) in which the"
-            f" engine measured some effect;\n  {invariant} gave it nothing to measure."
-        )
-    print()
+    rows = ((s.id, *(_verdict(s, s, s.id) or (None, None, None))) for s in scenarios)
+    t, lines_out = fp_report(rows)
+    for line in lines_out:
+        print(line)
+    for line in fp_summary(t):
+        print(line)
 
     # --- detection: injected regressions -------------------------------------------
     detected = checked = unmeasured_rec = 0

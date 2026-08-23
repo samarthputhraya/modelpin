@@ -213,19 +213,27 @@ the build).
 
 ### The false-positive evidence — and its limits, stated plainly
 
-**Result: 0/8 false positives** on a held-out 8-scenario suite (a model judged against *itself*,
-judge on, all `unchanged` at confidence 1.00). On that same run, the two perturbations that
-genuinely changed behavior were caught, and one prompt-injection the model resisted was correctly
-left `unchanged` (not a false negative). Corroborated by additional same-model and cross-model
-splits. Full writeup: [`docs/fp-measurement.md`](docs/fp-measurement.md).
+**Result: the false-positive rate is not yet established.** This section previously read
+"**0/8 false positives** on a held-out 8-scenario suite ... all `unchanged` at confidence 1.00".
+That claim is **withdrawn** as of 2026-08-23. All 8 of those trials ran at temperature 0, and a
+trial in which the engine measures no effect on any channel could not have produced a false
+alarm — counting it as a passed trial credits the engine for a test it could not fail. Scored
+honestly the same run is **0/0**, whose 95% upper bound is *unbounded*. The harness now says so
+itself. See [ADR-0022] and the full writeup: [`docs/fp-measurement.md`](docs/fp-measurement.md).
+
+What that run **does** still support: on it, the two perturbations that genuinely changed
+behavior were caught, and one prompt-injection the model resisted was correctly left `unchanged`
+(not a false negative). Detection is evidenced; quietness on *equivalent* behavior is not yet.
 
 The semantic judge's escalation threshold is **calibrated** on a labeled set in
 [`examples/calibration/`](examples/calibration/) that is **deliberately distinct from the held-out
-suite** (so it can't leak into the 0/8 number): equivalent-but-reworded pairs land at divergence
+suite** (so it cannot leak into the held-out result): equivalent-but-reworded pairs land at divergence
 0.0, real meaning changes at ≥ 0.8, leaving an empty gap around the 0.5 floor — 0 false positives.
 FP-safety was re-checked with an **independent judge** (a different model arbitrating) and
 re-validated on the held-out suite after promoting semantic divergence from `changed_minor` to a
-CI-failing `regression` (still 0/8).
+CI-failing `regression` — no verdict moved. Note the held-out re-validation contributed **0 scored
+trials** under the corrected accounting, so the floor rests on the labeled calibration set and the
+independent-judge check, not on three independent conditions.
 
 **This is a first calibration. Do not over-trust it.** The honest limitations, documented in
 [`docs/fp-measurement.md`](docs/fp-measurement.md):
@@ -241,7 +249,7 @@ non-OpenAI judge. We'd rather you know this than discover it.
 
 ### Proof it actually *fires*: the Drift Map
 
-The 0/8 shows Modelpin stays quiet on equivalent behavior; the complement — that it catches
+Quietness on equivalent behavior is the half **not** yet evidenced (above); the complement — that it catches
 *real* drift — is the **[Modelpin Drift Map #1](docs/reports/modelpin-drift-map-1.md)**. We replayed
 an open, deliberately-hard suite across **5 real migration pairs** (including cross-vendor), 5 runs
 each, judge on. The engine stayed quiet on ~50 of 60 comparisons but surfaced **≥1 genuine behavior
@@ -365,8 +373,8 @@ is what keeps the false-positive promise honest and the tool small enough to tru
 ## Status
 
 **Phase 0 (core engine MVP) — complete; `v0.1.1` live on PyPI.** Live-validated cross-vendor
-(OpenAI ↔ Google ↔ Groq/Llama); **0 false positives in 8 held-out trials** (an
-observation, not a rate — the exact one-sided 95% upper bound for 0/8 is ~31%); multi-turn replay; a real
+(OpenAI ↔ Google ↔ Groq/Llama); **false-positive rate not established** (the "0 in 8 held-out
+trials" claim is withdrawn — those 8 could not have fired, so the honest score is 0/0); multi-turn replay; a real
 GitHub Action; the public-report engine (`mp report`) + the open suite (in this repo, not
 in the wheel); the
 [Drift Map #1](docs/reports/modelpin-drift-map-1.md) published across 5 real migration pairs;

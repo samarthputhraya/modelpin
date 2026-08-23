@@ -72,7 +72,9 @@ MIN_REFUSAL_DELTA = 0.34
 #: docs/fp-measurement.md): equivalent-but-reworded pairs land at delta 0.0, and the meaning changes
 #: that actually took effect land at delta >= 0.8 (one perturbation the model resisted scored
 #: 0.0 — a failed perturbation, not a missed regression), so 0.5 sits in the empty gap with 0
-#: false positives. The held-out suite re-validation stayed 0/8 with the promotion live. NOTE
+#: false positives. The held-out re-validation moved no verdict with the promotion live -- but
+#: it contributed 0 SCORED trials (MP-75/ADR-0022: those temp-0 pairs could not have fired), so
+#: it is not independent evidence for this floor. The labeled set below is. NOTE
 #: the calibration set is still small and the perturbations synthetic — see docs/fp-measurement.md for
 #: the limitations and the planned expansion to real migration traces + an independent judge.
 MIN_SEMANTIC_DELTA = 0.5
