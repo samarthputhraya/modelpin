@@ -145,14 +145,20 @@ detection *improved* (`classify_sentiment` went `changed_minor` → `regression`
 > **Corrected 2026-08-23 (MP-75).** This previously read "held-out FP rate **still 0/8**" and
 > concluded FP-safety holds across **three** independent conditions. It holds across **one**.
 > The held-out suite contributed **0 scored trials**, so it is not evidence here. And the two
-> calibration runs are not demonstrably independent of each other: `[M]` they share the same 6
-> scenarios and the same 6 perturbation strings (`calibrate_thresholds.py:51-63`), differing
-> only in the *candidate* model — and `[M]` neither result file records which **judge**
-> arbitrated (`_calibration_results.json` / `_calibration_indep.json` store only `model`,
-> `runs`, `rows`), while `--judge` defaults to `gpt-4o-mini` for both. Since this floor gates
-> the judge's own output, the judge is exactly the factor that would have had to vary, and the
-> artifacts cannot show that it did. The evidence of record is the independent-*candidate* run
-> alone: 0 false positives in 6 equivalent pairs, `[M]` 95% one-sided upper bound **39.3%**.
+> calibration runs are not independent of each other: `[M]` they share the same 6 scenarios and
+> the same 6 perturbation strings (`calibrate_thresholds.py:51-63`), differing only in the
+> *candidate* model — and `[M]` **both used the same judge**: `examples/calibration/results/
+> result-independent-judge.json` and `result-selfjudge.json` each record `"judge":
+> "gpt-4o-mini"`. Since this floor gates the judge's own output, the judge is precisely the
+> factor that would have had to vary, and it provably did not.
+>
+> **Second correction, 2026-08-23:** the figure first published here for the surviving run —
+> "0 false positives in 6 equivalent pairs, upper bound 39.3%" — was itself the *pre-MP-75*
+> accounting, the same error corrected one row above. `[M]` Re-scored: of the 6 equivalent
+> pairs in the independent-candidate run, **5 return p = 1.00** and could not have fired; the
+> only scored trial is `explain_concept` (delta 0.20, p = 0.50). So the evidence of record is
+> **0/1, 95% one-sided upper bound 95.0%**. The self-judge run scores **0/6 → 0 trials**, i.e.
+> it contributes nothing by the same predicate that demoted the held-out suite.
 > `MIN_SEMANTIC_DELTA` is unchanged; only the claimed evidence for it is.
 
 **Known limitations (honest — do not oversell):** the calibration set is small (6 + 6

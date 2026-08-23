@@ -401,3 +401,54 @@ class TestFpSummary:
     def test_provider_errors_are_surfaced_when_present_and_silent_when_not(self):
         assert any("Provider errors" in x for x in fp_summary(self._t(scored=1, errors=2)))
         assert not any("Provider errors" in x for x in fp_summary(self._t(scored=1)))
+
+
+def _fp_arm_source() -> str:
+    """The FP arm's slice of `main()`. Grepped, because `main()` needs a provider and
+    ADR-0006 forbids a live call — the same technique as the recall-arm guard above."""
+    src = (Path(__file__).resolve().parent.parent / "scripts" / "fp_measurement.py").read_text(
+        encoding="utf-8"
+    )
+    return src[src.index("EQUIVALENT PAIRS") : src.index("INJECTED REGRESSIONS")]
+
+
+def test_the_fp_arm_publishes_only_through_the_pinned_helpers():
+    """ADR-0022's own lesson, applied one level further up.
+
+    [M] fp-guardian, third review: `main()` is the caller now, and it was not pinned.
+    Inlining `fp_tally([classify(r.verdict) ...])` there restored the pre-MP-75 accounting
+    (`0/8 = 0%`) with 299 tests green; replacing the summary print-loop with `pass` made
+    every published number vanish, also with 299 green. Extracting a pure function does not
+    pin the code that calls it — this test is the third and last place that lesson applies.
+    """
+    arm = _fp_arm_source()
+    assert "fp_report(" in arm, "the FP arm stopped going through fp_report()"
+    assert "fp_summary(" in arm, "the FP arm stopped publishing through fp_summary()"
+    assert "print(line)" in arm, "fp_summary's lines are computed but never printed"
+    assert "classify(" not in arm, (
+        "the FP arm calls classify() directly. classify() has no exclusion, so this is the "
+        "pre-MP-75 accounting restored: invariant trials return to the denominator and the "
+        "rate reads 0/8 = 0% again."
+    )
+    assert "fp_tally(" not in arm, "the FP arm bypasses fp_report() to tally directly"
+
+
+def test_classify_refuses_a_verdict_it_has_no_bucket_for():
+    """[M] the `raise` is unreachable today (all four DiffVerdict members are covered), which
+    is exactly why it needs a test: nothing else would notice it being softened back to a
+    `return "clean"` fallthrough, which silently scores an unknown verdict as a passed trial."""
+    with pytest.raises(ValueError, match="no false-positive bucket"):
+        classify("a_fifth_verdict")
+
+
+def test_the_exclusion_label_does_not_claim_no_effect_was_measured():
+    """[M] fp-guardian: `unchanged` at confidence 1.0 is BROADER than "nothing moved" —
+    golden pairs 3 and 4 (tests/test_diff.py:117-119) have genuinely different tool
+    distributions and still score p=1.00 everywhere. A label saying "no effect measured"
+    would be false about them, in operator-facing output."""
+    label = FP_OUTCOMES["no-effect"][3]
+    assert "could not have fired" in label, label
+    assert "no effect" not in label.lower(), (
+        f"the exclusion label claims no effect was measured: {label!r}. Effects can be "
+        "measured and still be unable to fire — say that instead."
+    )

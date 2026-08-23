@@ -235,15 +235,17 @@ The semantic judge's escalation threshold is **calibrated** on a labeled set in
 [`examples/calibration/`](examples/calibration/) that is **deliberately distinct from the held-out
 suite** (so it cannot leak into the held-out result). `[M]` On the independent-candidate run of
 record, equivalent pairs land at divergence **0.0–0.20** and real meaning changes at **0.60–1.0**,
-leaving a gap around the 0.5 floor — 0 false positives in 6 pairs, 95% upper bound **39.3%**. (The
-cleaner "0.0 versus ≥0.8" figures quoted here previously are the *self-judge* run, which an
-adversarial audit demoted as circular.)
+leaving a gap around the 0.5 floor. But `[M]` 5 of those 6 equivalent pairs return `p = 1.00` and
+could not have fired at all, so the honest score is **0/1 — 95% upper bound 95.0%**, not 0/6.
+(The cleaner "0.0 versus ≥0.8" figures quoted here previously are the *self-judge* run, which an
+adversarial audit demoted as circular — and which scores **0 trials** under the same predicate.)
 FP-safety was re-checked with an **independent judge** (a different model arbitrating) and
 re-validated on the held-out suite after promoting semantic divergence from `changed_minor` to a
 CI-failing `regression` — no verdict moved. That re-validation contributed **0 scored trials** under
 the corrected accounting, and `[M]` the two calibration runs share their scenarios and their
-perturbations, differing only in the candidate model — neither result file even records which judge
-arbitrated. So the floor rests on **one** labeled condition, not three.
+perturbations and **both record `"judge": "gpt-4o-mini"`**, differing only in the candidate model.
+Since this floor gates the judge's own output, the judge is the factor that would have had to vary.
+So the floor rests on **one** labeled condition — and that one scores 0/1, not 0/6.
 
 **This is a first calibration. Do not over-trust it.** The honest limitations, documented in
 [`docs/fp-measurement.md`](docs/fp-measurement.md):

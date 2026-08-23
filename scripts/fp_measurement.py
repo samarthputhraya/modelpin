@@ -175,7 +175,7 @@ FP_OUTCOMES: dict[str, tuple[bool, bool, str, str]] = {
     # 1.0 across the whole |i-j| <= 1 band: 16 of 36 cells, 10 of which genuinely differ.
     # Every one of them has p=1.0 > ALPHA, so the exclusion stays sound - but calling it
     # "no effect measured" would mislead the next reader about WHY.
-    "no-effect": (False, False, "no_effect", "  <-- could not have fired at ALPHA=0.05"),
+    "no-effect": (False, False, "no_effect", "  <-- p=1.00 everywhere; could not have fired"),
     "unmeasured": (False, False, "unmeasured", "  <-- UNMEASURED"),
 }
 
@@ -228,7 +228,15 @@ def fp_summary(t: dict[str, int]) -> list[str]:
     out.append(f"  Could not have fired at ALPHA (excluded from the rate): {t['no_effect']}")
     if t.get("errors"):
         out.append(f"  Provider errors (never reached a verdict): {t['errors']}")
-    if scored == 0:
+    if scored == 0 and t.get("errors") and not (t["no_effect"] or t["unmeasured"]):
+        out += [
+            "",
+            "  *** THIS RUN REACHED NO VERDICT. ***",
+            "  Every scenario failed with a provider error, so nothing was measured and",
+            "  nothing was excluded. This is a connectivity/credentials problem, not a",
+            "  property of the engine or of your scenarios.",
+        ]
+    elif scored == 0:
         out += [
             "",
             "  *** THIS RUN MEASURED NOTHING. ***",
@@ -304,8 +312,15 @@ def measurable(result) -> bool:
 
     We ask the ENGINE, rather than re-deriving it from the traces. Under ADR-0001 an
     `unchanged` verdict's confidence is `min(p)` across every signal, so
-    `unchanged AND confidence == 1.0` holds exactly when no channel measured any effect at
-    all - i.e. nothing could have fired. That criterion is SOUND BY CONSTRUCTION: a flagged
+    `unchanged AND confidence == 1.0` holds exactly when EVERY channel returned p = 1.00 -
+    i.e. the trial could not have fired at any ALPHA < 1.
+
+    That is NOT the same as "no effect was measured", and the distinction is load-bearing.
+    [M] fp-guardian: golden pairs 3 and 4 in `tests/test_diff.py:117-119` have genuinely
+    DIFFERENT tool distributions (a:3/b:2 vs a:2/b:3; a:5 vs a:4+b:1) and both return
+    `unchanged` at confidence 1.0000. Effects were measured; nothing could fire. NB the
+    engine rounds to 3 places (`diff/__init__.py:302`), so the real predicate is
+    `min(p) >= 0.9995` - still ~20x above ALPHA, so the soundness argument is unaffected. That criterion is SOUND BY CONSTRUCTION: a flagged
     verdict never carries `unchanged`-confidence, so this can never remove a false positive
     from the rate.
 
@@ -362,9 +377,16 @@ def main() -> None:
     # --- false-positive rate: same model vs itself ---------------------------------
     print("EQUIVALENT PAIRS (same model vs itself) -- any non-`unchanged` is a false alarm")
     print("  repertoire = DISTINCT behaviours observed, base|cand (diagnostic, not the test).")
-    print("  A trial is EXCLUDED when the engine measured no effect on any channel, i.e. it")
-    print("  had no opportunity to fire. Anything the engine flagged is always scored.")
-    rows = ((s.id, *(_verdict(s, s, s.id) or (None, None, None))) for s in scenarios)
+    print("  A trial is EXCLUDED when every channel returned p = 1.00 - it could not have")
+    print("  fired at any ALPHA < 1. Anything the engine flagged is always scored.")
+
+    def _row(scn):
+        # NB `res is not None`, not `res or ...`: a 3-tuple is always truthy today, but
+        # relying on that couples this line to `_verdict`'s return shape by accident.
+        res = _verdict(scn, scn, scn.id)
+        return (scn.id, *(res if res is not None else (None, None, None)))
+
+    rows = [_row(scn) for scn in scenarios]
     t, lines_out = fp_report(rows)
     for line in lines_out:
         print(line)

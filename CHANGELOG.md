@@ -43,10 +43,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `1 - alpha**(1/n)`, which is the Clopper-Pearson upper bound *only* at k=0. `[M]` at 1/8 it
   understated 47.1% as 31.2%; at 4/8 it printed 31.2% — an upper bound **below** the 50%
   observed rate. Replaced with an exact bisection bound.
-- **`MIN_SEMANTIC_DELTA`'s evidence is restated from three independent conditions to one.** The
-  held-out re-validation contributed 0 scored trials, and `[M]` the two calibration runs share
-  their scenarios and perturbations, differing only in the candidate model — neither result file
-  records which judge arbitrated. The threshold value is unchanged; only the claimed evidence.
+- **`MIN_SEMANTIC_DELTA`'s evidence is restated from three independent conditions to one, and
+  that one is weaker than first published.** The held-out re-validation contributed 0 scored
+  trials, and `[M]` the two calibration runs share their scenarios and perturbations and both
+  record `"judge": "gpt-4o-mini"`, differing only in the candidate model — so the judge, which
+  is what this floor gates, provably did not vary. `[M]` Of the surviving run's 6 equivalent
+  pairs, **5 return `p = 1.00`** and could not have fired, so the evidence is **0/1 (95% upper
+  bound 95.0%)**, not 0/6 at 39.3% — that figure was itself the pre-MP-75 accounting, corrected
+  here. The threshold value is unchanged; only the claimed evidence for it.
 
 - **`mp baseline`, `mp check` and `mp report` state how many replays a run will make,
   before making them.** The pre-spend line was `provider=… model=… runs=…`; it now also
