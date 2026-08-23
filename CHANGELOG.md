@@ -126,11 +126,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   exclude on that basis lets a dead engine post `0/0`. The document now publishes what the
   harness prints — `2/3`, the verbatim summary block including the `MISSED` note, and `[M]` the
   95% one-sided *lower* bound of **13.5%** — with the resistance reading demoted to a labelled
-  correction note beneath it. `README.md:227` has carried this framing since the withdrawal
-  above; **`README.md:231` is corrected here too** — it published a 95% lower bound *for the
-  withdrawn `2/2` denominator* (`22.4% at 2/2, 13.5% at 2/3`), offering the excluded reading as
-  a co-equal alternative on the surface most readers meet first. `README.md:222` sends the
-  reader to `docs/fp-measurement.md` as the "Full writeup".
+  correction note beneath it. `README.md` has carried this framing (*"2 of 3 injected
+  perturbations were flagged"*) since the withdrawal above; **its interval sentence is
+  corrected here too** — it published a 95% lower bound *for the withdrawn `2/2` denominator*
+  (`22.4% at 2/2, 13.5% at 2/3`), offering the excluded reading as a co-equal alternative on
+  the surface most readers meet first. `README.md` sends the reader to
+  `docs/fp-measurement.md` as the "Full writeup".
   `[M]` The same defect appeared **twice more in the same document** and both are fixed here:
   `## Detection (control)` called the injections "three controlled regressions" and attributed
   `decline_pii` a *"(comply → … semantic change)"* — the forbidden assertion, stated as fact, on
@@ -141,24 +142,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Clopper-Pearson treats the three perturbations as exchangeable trials, which by construction
   they are not.
   **No number the tool computes changed** — `git diff` over `modelpin/` and `scripts/` for this
-  work is empty. `[M]` Nine tests tie the document to the function whose output it quotes,
+  work is empty. `[M]` Ten tests tie the document to the function whose output it quotes,
   pinning the quoted block, the prose headline, the interval, the scenario set, the correction
-  note's existence, and a perfect-score tripwire. Fourteen mutants each leave the suite red,
-  including a fully self-consistent forgery that edits the table, the fraction, the recomputed
-  interval and the note together.
-  `[M]` **Five holes found and closed, every one by RUNNING the battery rather than reading the
-  tests** — recorded because the pattern is the point: a guard that reads as coverage and
-  provides none is this project's recurring defect. The banned-claim guard split the section
-  positionally, so re-asserting a withdrawn claim *below* the correction note passed; the ban
-  was one-directional, refusing `2/2` while allowing the flattering `3/3`; after both fixes it
-  was still section-scoped, so the same sentence one line *above* the headline passed; it then
-  stripped *every* blockquote, so a `> **In brief.**` pull-quote re-asserted all three
-  withdrawn claims in the most-read position on the page; and the `3/3` ban was a bare
-  substring that misfired on ordinary fractions like `13/30` **and** was unsatisfiable beside
-  the verbatim guard — a legitimate perfect score could not be published at all, whose cheapest
-  repair would have silently gutted the guard. It is now a state assertion over the document's
-  own tally, so a legitimate perfect score turns exactly one test red: the deliberate review
-  ADR-0023's falsifier calls for.
+  note's existence, the arm's one exclusion, and a perfect-score tripwire. Fifteen mutants each
+  leave the suite red, including a fully self-consistent forgery that edits the table, the
+  fraction, the recomputed interval and the note together.
+  `[M]` **Seven holes found and closed, every one by RUNNING the battery rather than reading
+  the tests** — recorded because the pattern is the point: a guard that reads as coverage and
+  provides none is this project's recurring defect, and these guards exhibited it seven times
+  before they stopped. The banned-claim scan split its section positionally, so re-asserting a
+  withdrawn claim *below* the correction note passed; the ban was one-directional, refusing
+  `2/2` while allowing the flattering `3/3`; after both fixes it was still section-scoped, so
+  the same sentence one line *above* the headline passed; it then stripped *every* blockquote,
+  so a `> **In brief.**` pull-quote re-asserted all three withdrawn claims in the most-read
+  position on the page; then it stripped blockquotes *adjacent to* a withdrawal note too,
+  because a blank line did not end the note; the `3/3` ban was a bare substring that misfired
+  on ordinary fractions like `13/30` **and** was unsatisfiable beside the verbatim guard — a
+  legitimate perfect score could not be published at all, and the cheapest repair would have
+  silently gutted the scan; and finally the replacement pattern for *"a miss is a false
+  negative"* was written through a shell heredoc that collapsed `\b` into the **backspace
+  control character**, so the guard added specifically to catch that claim contained three
+  literal `0x08` bytes and could never match anything. It passed review, and it passed its own
+  green suite, while asserting nothing at all.
+  The scan is now whitespace-normalised and emphasis-stripped, because `[M]` the assertion it
+  was written to catch was sitting in the file the whole time — 65 lines below its own
+  correction, invisible to a substring match for two independent reasons: markdown emphasis
+  (`*negative*`) and a hard line wrap between "is" and "a false". The tripwire is now a state
+  assertion over the document's own tally, so a legitimate perfect score turns exactly one test
+  red: the deliberate review ADR-0023's falsifier calls for.
   **What these tests still cannot do**, stated because they read stronger than they are: they
   do not prove the table matches a run that happened — no artifact of the detection run is
   committed (MP-83) — and their scope is `docs/fp-measurement.md` plus, in `README.md`, only

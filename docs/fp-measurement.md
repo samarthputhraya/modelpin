@@ -20,10 +20,17 @@ This file records how we measure it and the results.
   regardless of any change to the engine, and counting it as a passed trial credits the engine
   for a test it could not fail (ADR-0022). **That is strictly broader than "nothing moved"**:
   `[M]` golden pairs 3 and 4 in `tests/test_diff.py` have genuinely different tool
-  distributions and are still excluded, because 5 runs a side cannot separate them. So `scored`
-  is roughly half what a naive reading expects, and a calibration run needs about twice the
-  trials for a given interval width. Excluded counts are printed beside the rate, never folded
-  into it.
+  distributions and are still excluded, because 5 runs a side cannot separate them; so is a
+  refusal rate going 100% → 0%, since the mean statistic is one-sided. `[M]` At `runs=5` the
+  tool channel returns `p = 1.00` across the whole `|i-j| <= 1` band — **16 of 36 cells, 10 of
+  them with genuinely differing sides**, so on that grid `scored` is roughly **half** what a
+  naive reading expects. Do not use 2x as a planning figure: `[M]` on this document's two
+  measured runs the observed rate is far worse — **0 of 8** scored on the held-out suite and
+  **1 of 6** on the calibration run — and a run large enough to move a floor would need N≈10,
+  which is where the floors start to bind at all (N=9/11/12, ADR-0002). The exclusion is
+  nonetheless **sound by construction**: a flagged verdict never carries `unchanged`-confidence,
+  so it can never remove a false positive from the numerator.
+  Excluded counts are printed beside the rate, never folded into it.
 - **Coverage (published beside the rate, never folded into it).** A scenario can also come
   back `insufficient_evidence`: at least half the runs on one side recorded no output, no tool
   call and no refusal, so there was nothing to compare. That is neither a false alarm nor a
@@ -181,7 +188,8 @@ tool-trajectory + refusal), `decline_pii` (share the customer email → policy/f
 semantic), `classify_sentiment` (always "Positive" → assertion + semantic). The channel named
 is the one the perturbation *targets*; whether the candidate's behaviour actually changed on it
 is the measurement. A `regression` or `changed_minor` verdict scores a detection; **anything
-else, `unchanged` included, scores a miss and is never excluded**. `[M]` On the run of record
+else, `unchanged` included, scores a miss; the only exclusion is an abstention that reached
+no verdict at all (ADR-0018)**. `[M]` On the run of record
 above, `decline_pii` returned `unchanged` and is scored a MISS.
 
 **A miss is never a false alarm — it is either a false negative or a correct true negative, and
@@ -249,8 +257,12 @@ detection *improved* (`classify_sentiment` went `changed_minor` → `regression`
 
 **Known limitations (honest — do not oversell):** the calibration set is small (6 + 6
 pairs), the perturbations are synthetic system-prompt instructions (extreme, not subtle
-drift), recall on subtle changes is imperfect (4/6 — the safe failure direction: a miss is
-a false *negative*, not a false alarm), and the judge is OpenAI-only. **Next:** expand to
+drift), recall on subtle changes is imperfect (4/6 — a miss is never a false *alarm*, which is the
+safe direction, but whether any given one is a false negative or a correct true negative is
+what this arm cannot tell: `[M]` of those two misses, `explain_concept` is a genuine p-gate
+miss while `define_term` came back judged fully equivalent at `p = 1.00`, indistinguishable
+from the candidate simply not following the injected instruction), and the judge is
+OpenAI-only. **Next:** expand to
 ≥30 labeled pairs incl. real model-migration traces and a non-OpenAI judge before relying
 on the gate in high-stakes CI.
 
@@ -258,5 +270,9 @@ on the gate in high-stakes CI.
 
 These are **measurements under the stated settings**, not absolute claims about model
 quality. The structural floors remain deliberately conservative; the semantic floor is now
-calibrated (above) but on a modest set, so treat the `regression` promotion as a
-well-evidenced first calibration, not a final one.
+calibrated (above) but on a modest set — and **"calibrated" here means confirmed FP-safe and
+detection-preserving on that set, not *fitted*:** `[M]` the set cannot discriminate the value,
+the semantic sweep being flat from 0.1 to 0.9, so 0.5 is a conservative choice rather than a
+fitted one. `[M]` Re-scored under ADR-0022 that evidence is **0/1, 95% upper bound 95.0%**. So
+treat the `regression` promotion as a **first** calibration, not a well-evidenced or a final
+one.

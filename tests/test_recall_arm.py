@@ -28,6 +28,7 @@ why the arm is a pure function over rows and why `main()` itself is pinned by gr
 """
 
 import inspect
+import re
 import sys
 from pathlib import Path
 from types import CodeType
@@ -527,17 +528,34 @@ def _doc_live_prose(section: str) -> str:
     out: list[str] = []
     in_withdrawal = False
     for ln in section.splitlines():
+        if not ln.strip():
+            # `[M]` fp-guardian 2026-08-24, third pass: this used to `continue` BEFORE
+            # resetting, so a pull-quote separated from a withdrawal note by a blank line
+            # inherited its exemption - the same `> **In brief.**` bypass, green again one
+            # paragraph lower. A blank line ends the note.
+            in_withdrawal = False
+            continue
         if ln.lstrip().startswith(">"):
             if "**Corrected" in ln:
                 in_withdrawal = True
             if not in_withdrawal:
                 out.append(ln)
             continue
-        if not ln.strip():
-            continue
         in_withdrawal = False
         out.append(ln)
     return "\n".join(out)
+
+
+def _scannable(text: str) -> str:
+    """Live prose with markdown emphasis and line wrapping normalised away.
+
+    `[M]` fp-guardian 2026-08-24, third pass: the banned-claim scan missed *"a miss is
+    a false *negative*, not a false alarm"* sitting 65 lines below its own correction, for
+    TWO independent reasons - the emphasis markers (`*negative*`, not the `_negative_` the
+    ban listed) and a hard wrap between "is" and "a false". A substring scan over raw
+    markdown is a guard that reads as coverage and provides none against ordinary editing.
+    """
+    return re.sub(r"[*_`]", "", " ".join(text.split()))
 
 
 def _doc_run_of_record(section: str) -> list[str]:
@@ -660,8 +678,10 @@ def test_the_doc_never_asserts_that_a_perturbation_changed_behaviour():
 
     The withdrawn sentences are quotable inside a `> **Corrected**` blockquote - that is how
     this repo withdraws a claim - so blockquote lines are excluded and everything else is
-    live prose. `3/3` is banned alongside `2/2`: `[M]` fp-guardian 2026-08-24 noted the
-    original ban was one-directional and the unbanned direction was the flattering one.
+    live prose. The flattering direction is NOT covered here: `[M]` fp-guardian 2026-08-24
+    noted the original ban was one-directional, and R2 moved that check to
+    `test_a_perfect_detection_score_is_a_tripwire_not_a_silent_publish`, which asserts over
+    the tally rather than over the characters `3/3`. This test bans only WITHDRAWN claims.
 
     Scoped to the WHOLE FILE, not the detection section. `[M]` 2026-08-24, re-running the
     mutant battery after this guard was rewritten: re-asserting *"So 2/2 real behavior changes
@@ -670,7 +690,7 @@ def test_the_doc_never_asserts_that_a_perturbation_changed_behaviour():
     page, so there is no reason to scope this narrowly - and a guard whose blind spot is
     "one line earlier" is the kind that reads as coverage and provides none.
     """
-    live = _doc_live_prose(_doc_text())
+    live = _scannable(_doc_live_prose(_doc_text()))
     for banned in (
         "actually changed behavior",
         "real behavior changes were flagged",
@@ -680,14 +700,25 @@ def test_the_doc_never_asserts_that_a_perturbation_changed_behaviour():
         # false negative" entails "the behaviour changed and the engine missed it" - ADR-0023
         # consequence 2, in the unflattering direction, and the same sentence fp-guardian
         # blocked from the operator string during MP-79.
-        "is a false negative",
-        "is a false _negative_",
     ):
         assert banned not in live, (
             f"docs/fp-measurement.md asserts {banned!r} outside the correction note. The "
             "harness cannot tell a resisted instruction from a dead engine, so it may not "
             "claim which perturbations changed behaviour. See ADR-0023."
         )
+
+    # Bound to the SUBJECT, not the phrase. `[M]` fp-guardian 2026-08-24 found this assertion
+    # live 65 lines below its own correction, and a bare `"is a false negative"` ban cannot be
+    # used because the compliant sentence DISCLAIMS it in those very words ("whether any given
+    # one is a false negative or a correct true negative is what this arm cannot tell").
+    hit = re.search(r"miss(?:es)?\b[^.]{0,30}?\bis a false negative", live, re.I)
+    assert hit is None, (
+        f"docs/fp-measurement.md asserts {hit.group(0)!r} outside the correction note. "
+        "'A miss IS a false negative' entails that the behaviour changed and the engine "
+        "failed to see it - ADR-0023 consequence 2, in the unflattering direction, and the "
+        "standing pressure to loosen a floor until the miss converts. A miss is EITHER a "
+        "false negative OR a correct true negative, and this arm cannot tell which."
+    )
 
 
 def test_a_perfect_detection_score_is_a_tripwire_not_a_silent_publish():
@@ -732,7 +763,7 @@ def test_the_whole_document_uses_perturbation_vocabulary_not_regression():
     the model RESISTED. A section-scoped guard is how that survived a commit whose entire
     subject was this invariant.
     """
-    live = _doc_live_prose(_doc_text())
+    live = _scannable(_doc_live_prose(_doc_text()))
     for banned in ("controlled regression", "injected regression"):
         assert banned not in live, (
             f"docs/fp-measurement.md calls a perturbation a {banned!r}. Whether a perturbation "
@@ -772,4 +803,39 @@ def test_the_readme_publishes_the_same_detection_fraction_as_the_harness():
     assert "is **withdrawn**" in text, (
         "README.md no longer withdraws the 2/2 reading. A withdrawal that can be deleted "
         "silently is not a withdrawal."
+    )
+
+
+def test_the_doc_states_the_recall_arms_one_exclusion_correctly():
+    """The recall arm excludes exactly one thing, and the doc must say which.
+
+    `[M]` fp-guardian 2026-08-24, third pass: `## Detection (control)` claimed *"anything
+    else, `unchanged` included, scores a miss and is never excluded"*. That is false in the
+    LOOSENING direction - an abstention IS excluded (ADR-0018) - and this file's own header
+    records that deleting the `unmeasured` block left 302 tests green. A reader reconciling
+    the harness to a doc that says "never excluded" deletes exactly that block.
+
+    Asserted positively (ADR-0018 is named) and negatively (the false absolute is absent).
+    The harness's own MISSED note says "counted against detection, never excluded" of a
+    MISS, which is correct and must keep passing - hence the conjunction, not the phrase.
+    """
+    text = _doc_text()
+    assert "ADR-0018" in text, (
+        "docs/fp-measurement.md no longer names the recall arm's one exclusion. An arm "
+        "described as excluding nothing invites deleting the abstention block, and a run "
+        "that reached no verdict would then be scored a miss."
+    )
+    # Positive and SECTION-SCOPED. A literal ban on "never excluded" cannot work: the
+    # harness's own MISSED note says exactly that of a miss, correctly, inside the verbatim
+    # quote. And `[M]` a literal ban on the full sentence was trivially evaded - the mutant
+    # produced "scores a miss; is never excluded", which no fixed phrase catches. Requiring
+    # the citation where the rule is stated is robust to how the sentence is worded.
+    start = text.index("## Detection (control)")
+    section = text[start : text.index(chr(10) + "## ", start + 1)]
+    assert "ADR-0018" in section, (
+        "the `## Detection (control)` section no longer names the arm's one exclusion. It "
+        "excludes an abstention that reached no verdict (ADR-0018) - and only that. A "
+        "section that says the arm excludes NOTHING is false in the loosening direction, "
+        "and invites deleting the abstention block that this file's header records "
+        "surviving 302 green tests."
     )
