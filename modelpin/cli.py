@@ -147,15 +147,10 @@ def _replay_plan(
 ) -> str:
     """Describe the size of the run that is ABOUT to happen, for the pre-spend line.
 
-    MP-32: the pre-spend output used to be provider/model/runs only, so a user replaying a
-    scenario set they had not written learned the count from the success message - after
-    the calls were billed.
-
-    The `>=` is load-bearing. One replay is one `adapter.run()`, but an agent-kind
-    scenario's replay drives a tool loop of up to `MAX_TOOL_TURNS` completions, so replays
-    are a FLOOR on paid calls and never a ceiling. The judge is a second, independent axis:
-    `semantic_divergence_flags` calls it at most once per run per side, i.e. 2 per replay.
-    A bare replay count next to a spending decision would read as a cost ceiling it is not.
+    The `>=` is load-bearing and must not be "tidied" into an exact count: one replay is one
+    `adapter.run()`, but an agent scenario's replay drives a tool loop of up to
+    `MAX_TOOL_TURNS` completions, so replays FLOOR the paid calls and never cap them.
+    ADR-0019 governs this contract, including why `fake` must claim no cost at all.
     """
     replays = count * runs
     plan = f"{count} scenario(s) from {src_dir} -> {replays} replays"

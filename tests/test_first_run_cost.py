@@ -189,10 +189,8 @@ def test_baseline_states_the_size_of_the_run_before_spending(
 class TestReplayPlan:
     """The pre-spend line is a claim about someone's bill. Pin each branch of it.
 
-    `_replay_plan` was added with MP-32. A bare "40 replays" reads as a cost ceiling, and it
-    is not one: an agent scenario's replay drives a tool loop of up to MAX_TOOL_TURNS
-    completions, and a configured judge adds an independent axis. Overstating on the free
-    offline path would be the same defect pointed the other way.
+    ADR-0019 is the contract: a floor never a ceiling, the judge named as its own axis, and
+    no cost claimed at all on a path that cannot bill.
     """
 
     def test_fake_provider_claims_no_cost_at_all(self) -> None:
