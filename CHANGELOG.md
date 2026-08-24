@@ -180,9 +180,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   planning figures, or restoring "the conservative floor earns its keep" in
   `docs/fp-measurement.md`; and re-asserting a withdrawn claim *inside* a `> **Corrected**`
   note, where quoting it is the point and no guard can distinguish intent. Pinning every
-  sentence of a document from a unit test is the wrong shape, so these are disclosed and
-  tracked (MP-85) rather than papered over. What IS pinned is every number, every fraction,
-  and every claim about what the harness measured.
+  sentence of a document from a unit test is the wrong shape — the scope of what is and is not
+  guarded, and why, is recorded in **ADR-0024** — so these are disclosed and tracked (MP-85)
+  rather than papered over. What IS pinned is every number, every fraction, and every claim
+  about what the harness measured.
   `[M]` The `299 tests passing` line — 42 short for several releases — is now pinned to the
   collected count and cannot drift again.
 
