@@ -24,9 +24,14 @@ This file records how we measure it and the results.
   refusal rate going 100% → 0%, since the mean statistic is one-sided. `[M]` At `runs=5` the
   tool channel returns `p = 1.00` across the whole `|i-j| <= 1` band — **16 of 36 cells, 10 of
   them with genuinely differing sides**, so on that grid `scored` is roughly **half** what a
-  naive reading expects. Do not use 2x as a planning figure: `[M]` on this document's two
-  measured runs the observed rate is far worse — **0 of 8** scored on the held-out suite and
-  **1 of 6** on the calibration run — and a run large enough to move a floor would need N≈10,
+  naive reading expects. Do not use 2x as a planning figure: `[M]` on this document's **three**
+  measured runs the observed rate is far worse — **0 of 8** scored on the held-out suite,
+  **1 of 6** on the independent-candidate calibration run, and **0 of 6** on the self-judge run
+  (see the corrections at the end of *Semantic-judge calibration*) — **1 scored trial in 20
+  attempted, 5.0% pooled**, which is the only planning figure this document supports and the
+  one the `arg_*` projection below uses. *An earlier version of this sentence counted two runs
+  and pooled 1-of-14; it omitted the self-judge run, the only one of the three that would drag
+  the figure down.* A run large enough to move a floor would need N≈10,
   which is where the floors start to bind at all (N=9/11/12, ADR-0002). The exclusion is
   nonetheless **sound by construction**: a flagged verdict never carries `unchanged`-confidence,
   so it can never remove a false positive from the numerator.
@@ -76,9 +81,13 @@ reported as a fraction and never as "0%"; the harness now prints the upper bound
 
 It is also measured on the wrong surface to be reassuring: all 8 held-out scenarios run at
 temperature 0, and identical distributions short-circuit to `p=1.0` without the statistic
-running at all. **Zero scenarios in this repository combine tool use with temperature > 0** —
-the one surface where false positives are actually possible. Measured coverage there is `0/0`.
-Closing that is [MP-54]; until it lands, no stronger claim than the sentence above is supported.
+running at all. **This number says nothing about the one surface where false positives are
+actually possible** — tool use at temperature > 0. `[M] 2026-08-24` MP-54 has since landed the
+seven `examples/calibration/arg_*.json` scenarios, which do combine both (temperature 0.7, real
+JSON-Schema tools); they are the repo's only such surface. **Measured coverage there is still
+`0/0`: the scenarios exist, the run does not.** Until it is performed, no stronger claim than
+the sentence above is supported — and see the `arg_*` section below for the bound that run
+could reach even if it goes perfectly.
 
 `scripts/fp_measurement.py --model gpt-4o-mini --runs 5`, semantic judge ON
 (gpt-4o-mini), gpt-4o-mini vs itself across all 8 held-out scenarios — every verdict
@@ -178,6 +187,41 @@ this document's own rule four paragraphs above ("reported as `0/8` and never as 
 MP-75, rests on 0 scored trials rather than 8. Establishing it needs a live run over
 `examples/calibration/arg_*.json` — tool-using scenarios at temperature > 0, the surface where
 false positives are actually possible. That set exists (MP-54); the run does not.
+
+**The `arg_*` files are a `score` set and no threshold may be fitted on them (ADR-0025).** They
+live under `examples/calibration/` for provenance, but they do not share that directory's tuning
+role; roles are declared in [`examples/roles.json`](../examples/roles.json) and enforced by
+`tests/test_suite_roles.py`. Two consequences bind whoever runs this next:
+
+- **No argument threshold may be fitted here.** These are the only tool-bearing scenarios at
+  temperature > 0 in the repo, which makes them both the obvious place to fit a floor and the
+  one place fitting it would void the number this section is trying to establish. `[M]` This
+  does not block MP-04: `MIN_TOOL_ARG_TVD = 1.0` on that branch is a structural rule derived
+  from exhaustive relabelings under a constructed null, with no scenario set involved, at the
+  ceiling of its scale. A labelled fit set is needed only if a measured run says 1.0 must move.
+- **`[M]` This set cannot establish a low false-positive rate, whatever it returns — and the
+  likeliest outcome is that it measures nothing at all.** Seven scenarios give a one-sided 95%
+  upper bound of **34.8%** (`upper_bound_95(0, 7)`), but that is the *ceiling*, assuming all
+  seven score. They will not. This document records **three runs**, and pooling them is the
+  only honest input: `[M]` **0 of 8** scored on the held-out suite, **1 of 6** on the
+  independent-candidate calibration run, **0 of 6** on the self-judge run — **1 scored trial
+  out of 20 attempted, 5.0%**. At that rate seven scenarios project to **0.35 expected scored
+  trials: the modal outcome is ZERO**, which is `*** THIS RUN MEASURED NOTHING ***` and
+  abstention under ADR-0018. If one trial does score, the bound is **95.0%**; two would need a
+  28.6% scoring rate, nearly 6× the pooled rate, so **77.6% is not reachable here**. `5.0%`
+  needs n≈59 `[M]` (`upper_bound_95(0, 58)` = 5.03%, `(0, 59)` = 4.95%). *An earlier draft of
+  this bullet projected 3–4 trials by halving, and a second projected 1–2 by using only the
+  most favourable of the three runs; both are withdrawn, and both erred in the flattering
+  direction.* What this set can do is *falsify* the signal — one equivalent-looking argument
+  change that flags is decisive, and that costs a single trial. What it cannot do is supply the
+  headline this section is missing, and no run of it should be reported as having done so.
+  **This is the measured case for MP-89's `--repeats`: without more trials per scenario, the
+  run most likely returns an abstention rather than a number.**
+- `[M] 2026-08-24` **`scripts/fp_measurement.py` cannot select the subset** (`:517-520` loads a
+  whole directory; no role filter), so `--scenarios-dir examples/calibration` collects all 13
+  files — the seven `arg_*` *and* the six semantic scenarios `MIN_SEMANTIC_DELTA` was fitted on.
+  Until MP-89 lands, report the `arg_*` denominator only; a 13-scenario rate would be in-sample
+  for 6 of them.
 
 ## Detection (control)
 
