@@ -142,11 +142,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Clopper-Pearson treats the three perturbations as exchangeable trials, which by construction
   they are not.
   **No number the tool computes changed** — `git diff` over `modelpin/` and `scripts/` for this
-  work is empty. `[M]` Ten tests tie the document to the function whose output it quotes,
+  work is empty. `[M]` Eleven tests tie the document to the function whose output it quotes,
   pinning the quoted block, the prose headline, the interval, the scenario set, the correction
-  note's existence, the arm's one exclusion, and a perfect-score tripwire. Fifteen mutants each
-  leave the suite red, including a fully self-consistent forgery that edits the table, the
-  fraction, the recomputed interval and the note together.
+  note's existence, the arm's one exclusion, the README's own detection fraction and test
+  count, and a perfect-score tripwire. Two batteries, **30 mutants**, run against the final
+  tree: 15 structural ones all red — including a fully self-consistent forgery that edits the
+  table, the fraction, the recomputed interval and the note together — and 15 rewording ones,
+  6 of which survive and are named below rather than left for a reader to discover.
   `[M]` **Seven holes found and closed, every one by RUNNING the battery rather than reading
   the tests** — recorded because the pattern is the point: a guard that reads as coverage and
   provides none is this project's recurring defect, and these guards exhibited it seven times
@@ -172,10 +174,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   red: the deliberate review ADR-0023's falsifier calls for.
   **What these tests still cannot do**, stated because they read stronger than they are: they
   do not prove the table matches a run that happened — no artifact of the detection run is
-  committed (MP-83) — and their scope is `docs/fp-measurement.md` plus, in `README.md`, only
-  the detection fraction, the interval and the withdrawal's existence. `[M]` Every other
-  `README.md` claim can still be edited or deleted with the suite green — including the
-  `299 tests passing` line this change had to correct by hand to **341** (MP-85).
+  committed (MP-83). `[M]` **Six mutants still survive, all of them prose deletions rather
+  than number forgeries:** dropping the `0/1 — 95% upper bound 95.0%` figure or the not-fitted
+  gloss from `README.md`; removing the exclusion's soundness property, the `0 of 8` / `1 of 6`
+  planning figures, or restoring "the conservative floor earns its keep" in
+  `docs/fp-measurement.md`; and re-asserting a withdrawn claim *inside* a `> **Corrected**`
+  note, where quoting it is the point and no guard can distinguish intent. Pinning every
+  sentence of a document from a unit test is the wrong shape, so these are disclosed and
+  tracked (MP-85) rather than papered over. What IS pinned is every number, every fraction,
+  and every claim about what the harness measured.
+  `[M]` The `299 tests passing` line — 42 short for several releases — is now pinned to the
+  collected count and cannot drift again.
 
 ### Added
 - **`insufficient_evidence` verdict, and exit code 3.** A scenario where **at least half**

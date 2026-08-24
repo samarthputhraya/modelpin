@@ -711,14 +711,32 @@ def test_the_doc_never_asserts_that_a_perturbation_changed_behaviour():
     # live 65 lines below its own correction, and a bare `"is a false negative"` ban cannot be
     # used because the compliant sentence DISCLAIMS it in those very words ("whether any given
     # one is a false negative or a correct true negative is what this arm cannot tell").
-    hit = re.search(r"miss(?:es)?\b[^.]{0,30}?\bis a false negative", live, re.I)
-    assert hit is None, (
-        f"docs/fp-measurement.md asserts {hit.group(0)!r} outside the correction note. "
-        "'A miss IS a false negative' entails that the behaviour changed and the engine "
-        "failed to see it - ADR-0023 consequence 2, in the unflattering direction, and the "
-        "standing pressure to loosen a floor until the miss converts. A miss is EITHER a "
-        "false negative OR a correct true negative, and this arm cannot tell which."
-    )
+    # SENTENCE-LEVEL, because neither a spelling ban nor a whole-document presence check
+    # survives contact. `[M]` 2026-08-24 reword battery: a literal ban policed grammar, not
+    # meaning - "every miss is a false negative" was caught while "misses are false
+    # negatives", "a miss here means a false negative" and "the miss is, in truth, a false
+    # negative" all walked through. A document-wide positive check failed differently and
+    # worse: the disclaimer can sit in one section while the assertion sits in another,
+    # which is precisely the shape of the defect MP-81 exists to fix.
+    #
+    # So the rule is per-sentence: tie a miss to "false negative" and you must disclaim it
+    # in the same breath. Any phrasing that does is fine; any phrasing that does not is red.
+    for sentence in re.split(r"(?<=[.!?])\s+", live):
+        if not re.search(r"miss(?:es)?\b", sentence, re.I):
+            continue
+        if "false negative" not in sentence.lower():
+            continue
+        assert any(
+            d in sentence.lower()
+            for d in ("cannot tell", "either", "or a correct", "never a false alarm")
+        ), (
+            f"docs/fp-measurement.md ties a miss to a false negative without disclaiming it "
+            f"in the same sentence: {sentence!r}\n"
+            "A perturbed pair reading `unchanged` is EITHER a real change the engine missed "
+            "OR a candidate that ignored the injected instruction, and this arm cannot tell "
+            "which. Asserting the first is ADR-0023 consequence 2, and it is the standing "
+            "pressure to loosen a floor until the miss converts."
+        )
 
 
 def test_a_perfect_detection_score_is_a_tripwire_not_a_silent_publish():
@@ -832,10 +850,44 @@ def test_the_doc_states_the_recall_arms_one_exclusion_correctly():
     # the citation where the rule is stated is robust to how the sentence is worded.
     start = text.index("## Detection (control)")
     section = text[start : text.index(chr(10) + "## ", start + 1)]
+    assert "excludes nothing" not in _scannable(section), (
+        "the `## Detection (control)` section says the arm excludes nothing. `[M]` A "
+        "citation-present check alone passes this: the reword battery landed "
+        "'excludes nothing whatsoever, not even an abstention (contra ADR-0018)' green. The "
+        "arm excludes an abstention that reached no verdict, and only that."
+    )
     assert "ADR-0018" in section, (
         "the `## Detection (control)` section no longer names the arm's one exclusion. It "
         "excludes an abstention that reached no verdict (ADR-0018) - and only that. A "
         "section that says the arm excludes NOTHING is false in the loosening direction, "
         "and invites deleting the abstention block that this file's header records "
         "surviving 302 green tests."
+    )
+
+
+def test_the_readmes_test_count_is_the_real_one():
+    """`[M]` This number drifted 42 in production - `README.md` published `299 tests passing`
+    against an actual 341, across multiple releases, and MP-81 had to correct it by hand.
+
+    It is the cheapest possible claim for a reader to check and the one most likely to be
+    quietly wrong, which is exactly the combination that costs credibility. Pinned to the
+    collected count so it cannot drift again; a test added means a one-character README edit.
+    """
+    import subprocess
+
+    root = Path(__file__).resolve().parent.parent
+    out = subprocess.run(
+        [sys.executable, "-m", "pytest", "--collect-only", "-q"],
+        cwd=root,
+        capture_output=True,
+        text=True,
+    ).stdout
+    collected = int(re.search(r"(\d+) tests? collected", out).group(1))
+
+    text = (root / "README.md").read_text(encoding="utf-8")
+    claimed = re.search(r"\*\*(\d+) tests passing\*\*", text)
+    assert claimed, "README.md no longer states a test count"
+    assert int(claimed.group(1)) == collected, (
+        f"README.md claims {claimed.group(1)} tests passing; pytest collects {collected}. "
+        "This exact number was 42 short for several releases before MP-81 caught it."
     )
