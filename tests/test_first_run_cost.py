@@ -389,13 +389,15 @@ def test_check_judge_disclosure_bounds_the_judge_calls_it_makes(
 ) -> None:
     """MP-72 - `up to N judge calls` must be a BOUND, including on an older, larger baseline.
 
-    `_replay_plan` derives the judge axis from `2 x scenarios x --runs`, which assumes both
-    sides hold `--runs` traces. Only the candidate side does: `load_baseline` returns however
-    many runs were RECORDED, `check` passes them straight into `diff_scenario`, and
-    `semantic_divergence_flags` then scores every run on BOTH sides. A baseline recorded at
-    `--runs 20` and checked at `--runs 5` therefore issues 24 judge calls for ONE scenario
-    (19 baseline - the modal run IS the reference and skips the judge - plus 5 candidate)
-    against a disclosed bound of `2 x 1 x 5 = 10`.
+    THE DEFECT, in the past tense because it is fixed: `_replay_plan` USED TO derive the
+    judge axis from `2 x scenarios x --runs`, which assumes both sides hold `--runs` traces.
+    Only the candidate side does: `load_baseline` returns however many runs were RECORDED,
+    `check` passes them straight into `diff_scenario`, and `semantic_divergence_flags` then
+    scores every run on BOTH sides. A baseline recorded at `--runs 20` and checked at
+    `--runs 5` therefore issued 24 judge calls for ONE scenario (19 baseline - the modal run
+    IS the reference and skips the judge - plus 5 candidate) against a disclosed bound of
+    `2 x 1 x 5 = 10`. It NOW sums the stored traces off disk (ADR-0026); the current rule is
+    `J = <reference runs> + <candidate runs>`.
 
     Asserted against what the judge was actually ASKED to do, so the number cannot drift away
     from the behaviour. `mp report` is NOT affected - `replay()` hands it exactly `runs`
