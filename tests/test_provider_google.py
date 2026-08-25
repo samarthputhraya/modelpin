@@ -227,3 +227,153 @@ def test_empty_candidates_raises():
 
 def test_get_adapter_returns_google_adapter():
     assert isinstance(get_adapter("google"), GoogleAdapter)
+
+
+# --- MP-104: the Vertex backend ------------------------------------------------------
+#
+# [M] 2026-08-25, measured on a real account. The AI Studio (API-key) path bills a PREPAY
+# wallet that is separate from Google Cloud billing: with Cloud credit available, every
+# current model returned `429 - "Your prepayment credits are depleted"`, and a freshly
+# created key in the credited project was refused identically, because prepay is a property
+# of the BILLING ACCOUNT and not of the project. The same project on Vertex answered and
+# billed the Cloud credit. So this is not a stylistic second backend - it decides whether a
+# user can spend the money they have. These tests are offline (ADR-0006): they assert which
+# CLIENT gets built, never that a call succeeds.
+
+
+class _SpyGenai:
+    """Stands in for `google.genai`, recording how Client() was constructed."""
+
+    def __init__(self):
+        self.calls = []
+
+    def Client(self, **kwargs):  # noqa: N802 - mirrors the SDK's class name
+        self.calls.append(kwargs)
+        return SimpleNamespace(**kwargs)
+
+
+@pytest.fixture
+def spy_genai(monkeypatch):
+    spy = _SpyGenai()
+    monkeypatch.setattr("modelpin.providers.google._import_genai", lambda: spy)
+    for var in (
+        "GEMINI_API_KEY",
+        "GOOGLE_API_KEY",
+        "GOOGLE_GENAI_USE_VERTEXAI",
+        "GOOGLE_CLOUD_PROJECT",
+        "GOOGLE_CLOUD_LOCATION",
+    ):
+        monkeypatch.delenv(var, raising=False)
+    return spy
+
+
+def test_the_api_key_path_is_still_the_default(spy_genai, monkeypatch):
+    """The default must not move. A user who sets only GEMINI_API_KEY gets AI Studio."""
+    monkeypatch.setenv("GEMINI_API_KEY", "AIzaTESTKEY")
+    from modelpin.providers.google import build_google_client
+
+    build_google_client()
+    assert spy_genai.calls == [{"api_key": "AIzaTESTKEY"}], spy_genai.calls
+    assert "vertexai" not in spy_genai.calls[0]
+
+
+def test_vertex_is_selected_by_the_sdks_own_env_var(spy_genai, monkeypatch):
+    """[M] The SDK's documented contract, not a Modelpin-specific name, so a user already
+    running google-genai elsewhere needs no extra setup."""
+    monkeypatch.setenv("GOOGLE_GENAI_USE_VERTEXAI", "true")
+    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "proj-123")
+    from modelpin.providers.google import build_google_client
+
+    build_google_client()
+    assert spy_genai.calls == [
+        {"vertexai": True, "project": "proj-123", "location": "us-central1"}
+    ], spy_genai.calls
+
+
+def test_vertex_never_receives_an_api_key(spy_genai, monkeypatch):
+    """[M] Vertex REJECTS API keys outright ("API keys are not supported by this API.
+    Expected OAuth2 access token"), so passing one through would turn a working ADC setup
+    into a hard failure for any user who has both variables set."""
+    monkeypatch.setenv("GOOGLE_GENAI_USE_VERTEXAI", "1")
+    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "proj-123")
+    monkeypatch.setenv("GEMINI_API_KEY", "AIzaSHOULD-NOT-BE-USED")
+    from modelpin.providers.google import build_google_client
+
+    build_google_client()
+    assert "api_key" not in spy_genai.calls[0], spy_genai.calls
+    assert spy_genai.calls[0]["vertexai"] is True
+
+
+@pytest.mark.parametrize("value", ["1", "true", "TRUE", "yes", "on"])
+def test_the_vertex_switch_accepts_the_usual_truthy_spellings(spy_genai, monkeypatch, value):
+    monkeypatch.setenv("GOOGLE_GENAI_USE_VERTEXAI", value)
+    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "p")
+    from modelpin.providers.google import build_google_client
+
+    build_google_client()
+    assert spy_genai.calls[0].get("vertexai") is True, value
+
+
+@pytest.mark.parametrize("value", ["0", "false", "no", "", "  "])
+def test_a_falsey_switch_leaves_the_api_key_path_alone(spy_genai, monkeypatch, value):
+    """Guards the direction that would silently break existing users: a stray or disabled
+    switch must NOT divert them to a backend they have no credentials for."""
+    monkeypatch.setenv("GOOGLE_GENAI_USE_VERTEXAI", value)
+    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "p")
+    monkeypatch.setenv("GEMINI_API_KEY", "AIzaTESTKEY")
+    from modelpin.providers.google import build_google_client
+
+    build_google_client()
+    assert spy_genai.calls == [{"api_key": "AIzaTESTKEY"}], (value, spy_genai.calls)
+
+
+def test_vertex_without_a_project_names_the_missing_variable(spy_genai, monkeypatch):
+    monkeypatch.setenv("GOOGLE_GENAI_USE_VERTEXAI", "true")
+    from modelpin.providers.google import build_google_client
+
+    with pytest.raises(ProviderError, match="GOOGLE_CLOUD_PROJECT is empty"):
+        build_google_client()
+    assert spy_genai.calls == [], "no client may be built without a billing project"
+
+
+def test_the_location_is_overridable_for_data_residency(spy_genai, monkeypatch):
+    monkeypatch.setenv("GOOGLE_GENAI_USE_VERTEXAI", "true")
+    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "p")
+    monkeypatch.setenv("GOOGLE_CLOUD_LOCATION", "asia-south1")
+    from modelpin.providers.google import build_google_client
+
+    build_google_client()
+    assert spy_genai.calls[0]["location"] == "asia-south1"
+
+
+def test_the_no_key_error_points_at_the_backend_that_bills_cloud_credit(spy_genai):
+    """A user staring at `GEMINI_API_KEY is not set` has no way to discover that the money
+    they already hold is spendable through the other backend."""
+    from modelpin.providers.google import build_google_client
+
+    with pytest.raises(ProviderError) as exc_info:
+        build_google_client()
+    msg = str(exc_info.value)
+    assert "GEMINI_API_KEY is not set" in msg
+    assert "GOOGLE_GENAI_USE_VERTEXAI" in msg and "GOOGLE_CLOUD_PROJECT" in msg, msg
+
+
+def test_a_vertex_client_failure_is_wrapped_and_names_ADC(monkeypatch):
+    """The failure mode a user WILL hit: Vertex selected, but `gcloud auth
+    application-default login` never run. The message must not read as a missing API key."""
+
+    class _Boom:
+        def Client(self, **_):  # noqa: N802
+            raise RuntimeError("could not find default credentials for project sekret-proj")
+
+    monkeypatch.setattr("modelpin.providers.google._import_genai", lambda: _Boom())
+    monkeypatch.setenv("GOOGLE_GENAI_USE_VERTEXAI", "true")
+    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "sekret-proj")
+    from modelpin.providers.google import build_google_client
+
+    with pytest.raises(ProviderError) as exc_info:
+        build_google_client()
+    msg = str(exc_info.value)
+    assert "application-default login" in msg, msg
+    assert "NOT an API key" in msg, msg
+    assert "aiplatform.googleapis.com" in msg, msg

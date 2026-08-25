@@ -328,6 +328,26 @@ hardcoded, shipped, or stored (cost stays yours; provider ToS stays clean):
 In CI, supply these as repo secrets (see the workflow above). Error text is scrubbed of
 `sk-` / `Bearer` tokens, so a failed call never leaks your key into a log, traceback, or PR comment.
 
+### Google: billing Vertex AI instead of an API key
+
+Google sells Gemini through two doors, and **an AI Studio API key cannot spend Google Cloud
+credit** — that path bills a separate prepaid wallet. If your Gemini budget lives in Cloud
+billing, point Modelpin at Vertex instead. It uses Application Default Credentials, so there is
+no key at all:
+
+```bash
+gcloud auth application-default login          # once
+export GOOGLE_GENAI_USE_VERTEXAI=true
+export GOOGLE_CLOUD_PROJECT=your-project-id
+export GOOGLE_CLOUD_LOCATION=us-central1       # optional; this is the default
+modelpin check --to gemini-2.5-flash --provider google
+```
+
+The variable names are the Google GenAI SDK's own, so nothing here is Modelpin-specific. The
+API-key path stays the default and is unchanged. The two doors do not offer the same catalogue:
+`[M]` `gemini-2.5-flash` currently returns *"no longer available to new users"* on AI Studio while
+still serving on Vertex — which is the sort of divergence Modelpin exists to notice.
+
 ---
 
 ## CLI reference
@@ -400,7 +420,7 @@ trials" claim is withdrawn — those 8 could not have fired, so the honest score
 GitHub Action; the public-report engine (`mp report`) + the open suite (in this repo, not
 in the wheel); the
 [Drift Map #1](docs/reports/modelpin-drift-map-1.md) published across 5 real migration pairs;
-`pip install "modelpin[providers]"`; **361 tests passing**, `ruff` + `black` clean. The Anthropic
+`pip install "modelpin[providers]"`; **378 tests passing**, `ruff` + `black` clean. The Anthropic
 adapter is still a stub (deferred until a paid key is in play); not yet listed on the GitHub
 Marketplace.
 

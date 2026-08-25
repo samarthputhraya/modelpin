@@ -35,20 +35,71 @@ _BLOCKED_FINISH: frozenset[str] = frozenset(
 )
 
 
-def build_google_client(api_key_envs: tuple[str, ...] = _API_KEY_ENVS) -> Any:
-    """Construct a real Gemini client: validate the BYO-key, then lazily import the SDK."""
-    api_key = next((os.environ.get(e, "").strip() for e in api_key_envs if os.environ.get(e)), "")
-    if not api_key:
-        raise ProviderError(
-            f"{api_key_envs[0]} is not set. Modelpin uses YOUR own API key "
-            "(cost + provider ToS) — export it and retry."
-        )
+def _import_genai() -> Any:
     try:
         from google import genai
     except ImportError as exc:  # optional dependency
         raise ProviderError(
             "The Google GenAI SDK is not installed. Install it with: pip install google-genai"
         ) from exc
+    return genai
+
+
+def _truthy(value: str) -> bool:
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def build_google_client(api_key_envs: tuple[str, ...] = _API_KEY_ENVS) -> Any:
+    """Construct a real Gemini client. Two BACKENDS, both the end user's own credentials.
+
+    Default is the AI Studio path: an API key from ``GEMINI_API_KEY``. Setting
+    ``GOOGLE_GENAI_USE_VERTEXAI=true`` selects Vertex AI instead, authenticated by Application
+    Default Credentials rather than a key. Env names are the SDK's own documented contract, so
+    a user who already runs the SDK elsewhere needs no Modelpin-specific setup.
+
+    ADR-0008 is unchanged and both paths honour it: Modelpin never hardcodes, stores or ships a
+    credential, and reads only what the caller already put in their own environment. ADC is a
+    different SHAPE of the user's credential, not somebody else's.
+
+    Why the second backend exists, `[M]` 2026-08-25, measured on a real account: the AI Studio
+    path bills a **prepay wallet that is separate from Google Cloud billing**. With ₹28,582 of
+    Cloud credit available, every current model returned
+    ``429 RESOURCE_EXHAUSTED - "Your prepayment credits are depleted"`` — and a freshly created
+    key in the credited project was refused identically, because prepay is a property of the
+    BILLING ACCOUNT, not the project. The same project on Vertex answered normally and billed
+    against the Cloud credit. Vertex also still serves models AI Studio has retired: `[M]`
+    ``gemini-2.5-flash`` is ``404 "no longer available to new users"`` on one and live on the
+    other. So the backend is not a preference, it decides what a user can run and pay for.
+    """
+    genai = _import_genai()
+
+    if _truthy(os.environ.get("GOOGLE_GENAI_USE_VERTEXAI", "")):
+        project = os.environ.get("GOOGLE_CLOUD_PROJECT", "").strip()
+        if not project:
+            raise ProviderError(
+                "GOOGLE_GENAI_USE_VERTEXAI is set but GOOGLE_CLOUD_PROJECT is empty. Vertex "
+                "bills a specific project — export it and retry, e.g. "
+                "GOOGLE_CLOUD_PROJECT=my-project."
+            )
+        # us-central1 carries the broadest model coverage; override for data residency.
+        location = os.environ.get("GOOGLE_CLOUD_LOCATION", "").strip() or "us-central1"
+        try:
+            return genai.Client(vertexai=True, project=project, location=location)
+        except Exception as exc:  # noqa: BLE001 - SDK raises several unrelated types here
+            raise ProviderError(
+                f"Could not build a Vertex client for project {scrub_secrets(project)!r} in "
+                f"{location}: {scrub_secrets(str(exc))}. Vertex uses Application Default "
+                "Credentials, NOT an API key — run `gcloud auth application-default login`, "
+                "and ensure aiplatform.googleapis.com is enabled on the project."
+            ) from exc
+
+    api_key = next((os.environ.get(e, "").strip() for e in api_key_envs if os.environ.get(e)), "")
+    if not api_key:
+        raise ProviderError(
+            f"{api_key_envs[0]} is not set. Modelpin uses YOUR own API key "
+            "(cost + provider ToS) — export it and retry. To bill Google Cloud instead of an "
+            "API key, set GOOGLE_GENAI_USE_VERTEXAI=true and GOOGLE_CLOUD_PROJECT."
+        )
     return genai.Client(api_key=api_key)
 
 
