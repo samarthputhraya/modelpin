@@ -112,6 +112,10 @@ That is what the harness prints, verbatim and unadjusted:
 
 ```
   Detection: 2/3 injected perturbations caught
+  95% lower bound on the true rate: 13.5% (one-sided Clopper-Pearson, n=3)
+  That rate is over perturbations APPLIED, not over behaviour changes; and the
+  interval treats them as exchangeable trials, which by construction they are
+  not - each targets a different signal.
   Unmeasured (excluded): 0
 
   NOTE: 1 perturbation(s) MISSED - counted against detection, never
@@ -129,8 +133,10 @@ synthetic, deliberately extreme system-prompt injections against one model at te
 in a single run — and the interval treats the three as exchangeable trials, which by
 construction they are not, since each was chosen to hit a different signal. `[M]` The 95%
 one-sided *lower* bound at 2/3 is **13.5%**: `1 - upper_bound_95(1, 3)`, the harness's own exact
-Clopper-Pearson helper in [`scripts/fp_measurement.py`](../scripts/fp_measurement.py). The tool
-itself prints the bare fraction only; moving the interval into it is MP-82.
+Clopper-Pearson helper in [`scripts/fp_measurement.py`](../scripts/fp_measurement.py). `[M]` The
+tool now prints that bound itself — it is the second line of the block above (MP-82); until then
+this page and `README.md` published a floor the executable withheld, leaving the detection arm
+the only one of the two not bounding its own claim.
 Detection is demonstrated, **not characterised**.
 
 > **Corrected 2026-08-24 (MP-81).** This section previously read *"Detection: every

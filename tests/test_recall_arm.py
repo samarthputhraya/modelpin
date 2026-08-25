@@ -266,11 +266,23 @@ class TestRecallSummary:
         out = "\n".join(recall_summary(self._t(unmeasured=3)))
         assert "Detection: 0/0" in out
         assert "CHECKED NOTHING" in out, out
+        # [M] MP-82: `1 - upper_bound_95(0, 0)` is 0.0 via the helper's `n <= 0` guard, so an
+        # ungated interval prints `0.0%` - a measured-looking floor directly above a banner
+        # saying nothing was measured. This is the one MP-82 shape the doc's verbatim quote
+        # provably cannot see: patching the bound in on `checked == 0` ALONE left 356 green.
+        assert "lower bound" not in out, (
+            f"a run that checked nothing published an interval: {out!r}. 0/0 has no floor to "
+            "report; the FP arm gates its bound on `scored` for the same reason."
+        )
 
     def test_an_all_error_run_blames_the_network_not_the_engine(self):
         out = "\n".join(recall_summary(self._t(errors=3)))
         assert "REACHED NO VERDICT" in out, out
         assert "connectivity" in out
+        assert "lower bound" not in out, (
+            f"a run where every scenario errored published an interval: {out!r}. The bound "
+            "would describe the network, not the engine."
+        )
 
     def test_a_miss_is_named_without_claiming_the_behaviour_changed(self):
         """Operator-facing wording carries ADR-0022's distinction, because the number alone
@@ -311,18 +323,173 @@ class TestRecallSummary:
 
     def test_a_full_run_does_not_print_a_percentage(self):
         """[M] ADR-0022 withdrew `0/8 = 0%` because a rate over a handful of trials reads as
-        a property of the engine. `3/3 = 100%` is the same error mirrored, and this arm
-        publishes no interval yet (MP-82). Print the fraction; let the reader see n=3.
+        a property of the engine. `3/3 = 100%` is the same error mirrored. Print the fraction
+        and its lower bound; never the point estimate.
 
         [M] fp-guardian computed what the withheld interval would say, which is why MP-82
         exists rather than nothing: `3/3` bounds the true detection rate at only 36.8%, and
         `2/3` - the actual run of record - at 13.5%. The bare fraction is weak evidence too;
-        it is just not weak in a way that reads as a claim."""
+        it is just not weak in a way that reads as a claim. MP-82 took the first branch this
+        test's own failure message offered; the ban on the percentage survives it unchanged.
+        """
         out = "\n".join(recall_summary(self._t(detected=3, checked=3)))
         assert "100%" not in out, (
-            f"the detection arm published a percentage over 3 trials: {out!r}. Either print "
-            "an interval with it (MP-82) or leave the fraction to speak for itself."
+            f"the detection arm published a percentage over 3 trials: {out!r}. Print the "
+            "interval with the fraction (MP-82); the point estimate is the withdrawn claim."
         )
+        assert "36.8%" in out, f"the interval MP-82 added is gone from a 3/3 run: {out!r}"
+
+        # [M] MP-82 adversary: the substring ban above went BLIND the moment this arm gained a
+        # `{:.1%}`-formatted line, because `"100%" in "100.0%"` is False. It was total when the
+        # arm printed no percentage at all. This is the general form it has to be now: the
+        # point estimate must not appear as ANY published percentage. At d>0 the exact floor is
+        # strictly below d/checked, so equality means the point estimate got published wearing
+        # the interval's label - ADR-0022's withdrawn `0/8 = 0%` mirrored. (At d=0 floor and
+        # observed are both 0.0% and genuinely coincide, which is why that case is exempt.)
+        for detected, checked in [(3, 3), (2, 3), (5, 5), (1, 2), (4, 6), (7, 8)]:
+            body = "\n".join(recall_summary(self._t(detected=detected, checked=checked)))
+            observed = 100 * detected / checked
+            for pct in re.findall(r"(\d+\.?\d*)%", body):
+                assert abs(float(pct) - observed) > 1e-9, (
+                    f"{detected}/{checked} published {pct}%, which IS the observed rate. A "
+                    f"lower bound is strictly below it at d>0 (here {observed:.1f}% observed, "
+                    "floor should be lower). The point estimate is wearing the bound's label."
+                )
+
+    def test_the_summary_uses_the_exact_bound_not_the_closed_form(self):
+        """The recall arm's copy of `tests/test_fp_measurement_repertoire.py:386`, which is
+        the ONLY guard that pins a summary to USE `upper_bound_95` rather than merely pinning
+        the helper in isolation. [M] MP-75's lesson, and the landmine `ops/NOW.md` records:
+        pinning a pure function does not pin its CALLER.
+
+        Hardcoded numerals, deliberately, exactly as the FP arm's template does: a literal
+        only the exact helper can produce survives any refactor of the call and cannot be
+        satisfied by the closed form. Deriving the expectation from `upper_bound_95` here
+        would make the test agree with a mutated helper.
+
+        [M] THE COLLISION THAT MAKES THIS GUARD NECESSARY: the closed form `alpha**(1/n)` is
+        the exact lower bound ONLY when nothing was missed. At 2/3 it prints 36.8% - which is
+        also the CORRECT bound at 3/3. So the closed-form mutant produces a wrong number that
+        looks like a right one, and only a tally with a miss in it can tell them apart.
+        """
+        out = "\n".join(recall_summary(self._t(detected=2, checked=3)))
+        assert "13.5%" in out, f"expected the exact Clopper-Pearson floor for 2/3: {out!r}"
+        assert "36.8%" not in out, (
+            f"the closed form is back: {out!r}. 36.8% is `0.05**(1/3)`, the floor for a run "
+            "that missed NOTHING - published here over a run that missed one of three."
+        )
+        # The WHOLE line, verbatim. [M] mutation-sentinel: the label, the confidence level and
+        # the `n=` were pinned by nothing but the hand-copied block in docs/fp-measurement.md,
+        # and that guard's own failure message tells a maintainer to re-copy the doc when the
+        # wording changes - so dropping `95%` from a published statistic, or publishing a wrong
+        # n, went green in two edits. A literal here cannot be laundered by a doc re-copy.
+        assert "  95% lower bound on the true rate: 13.5% (one-sided Clopper-Pearson, n=3)" in out
+
+    def test_the_published_n_is_the_denominator_the_bound_was_computed_at(self):
+        """[M] mutation-sentinel: three single-token mutants of the published `n=` survived a
+        green suite - `n={len(PERTURBATIONS)}`, `n={checked + unmeasured}`, and
+        `n={checked + errors}`. Every asserting tally in this class used checked==3, which is
+        ALSO len(PERTURBATIONS), so all three candidates coincided and nothing separated them.
+
+        An inflated n overstates the evidence base behind the floor, and does it precisely on
+        the runs that HAVE abstentions or provider errors - the runs whose coverage counters
+        this arm publishes because the denominator moved. Flattering direction, on the exact
+        shape the arm exists to be honest about.
+
+        Denominators deliberately != 3, and literals rather than derived values, for the same
+        reason the sibling test above hardcodes: a derived expectation agrees with a mutated
+        helper. [M] verified against the shipped helper.
+        """
+        for expected, t in [
+            ("2.5% (one-sided Clopper-Pearson, n=2)", self._t(1, 2, unmeasured=1)),
+            ("0.0% (one-sided Clopper-Pearson, n=1)", self._t(0, 1)),
+            ("7.6% (one-sided Clopper-Pearson, n=5)", self._t(2, 5, unmeasured=4, errors=2)),
+            ("27.1% (one-sided Clopper-Pearson, n=6)", self._t(4, 6, errors=3)),
+            ("54.9% (one-sided Clopper-Pearson, n=5)", self._t(5, 5)),
+            ("52.9% (one-sided Clopper-Pearson, n=8)", self._t(7, 8, unmeasured=2)),
+        ]:
+            out = "\n".join(recall_summary(t))
+            assert f"95% lower bound on the true rate: {expected}" in out, out
+
+    def test_the_published_bound_is_never_above_the_published_fraction(self):
+        """The mirror of the FP arm's `:393`. A LOWER bound above the observed rate is the
+        same self-contradiction as an upper bound below it, pointing the other way - and
+        `ops/decisions/ADR-0022` records that the shipped closed form once did exactly that.
+
+        Also the only guard asserting the line EXISTS at all: [M] deleting it left every
+        other recall test green except the doc's verbatim quote, which sees the 2/3 tally
+        only and only while the doc holds a hand-copied duplicate.
+        """
+        for detected, checked in [(0, 3), (1, 3), (2, 3), (3, 3), (1, 1), (5, 5), (2, 8)]:
+            out = "\n".join(recall_summary(self._t(detected=detected, checked=checked)))
+            assert "lower bound" in out, f"the interval line vanished for {detected}/{checked}"
+            pct = float(out.split("lower bound on the true rate: ")[1].split("%")[0])
+            assert pct <= 100 * detected / checked + 0.05, (
+                f"{detected}/{checked}: floor {pct}% exceeds the observed rate. A lower "
+                "bound above what was measured overstates the engine."
+            )
+
+    def test_the_bound_never_travels_without_its_caveat(self):
+        """[M] Both doc surfaces (`README.md`, `docs/fp-measurement.md`) print this caveat
+        beside this number. A tool that published the bound bare would assert a
+        Clopper-Pearson interval MORE confidently than the documents it was aligned to -
+        MP-82's own defect, re-created pointing the other way.
+
+        The perturbations are chosen one per signal (tool/refusal, format/PII,
+        classification), so they are exactly NOT the exchangeable draws a binomial interval
+        assumes. The bound is still the honest direction to err in; the caveat is what keeps
+        it from reading as a characterisation.
+        """
+        for detected, checked in [(3, 3), (2, 3), (0, 3), (1, 2), (4, 6)]:
+            out = "\n".join(recall_summary(self._t(detected=detected, checked=checked)))
+            assert "exchangeable" in out, (
+                f"{detected}/{checked} published a bound with no exchangeability caveat: "
+                f"{out!r}. `docs/fp-measurement.md` and `README.md` both carry it."
+            )
+            # BOTH SIDES. [M] mutation-sentinel: a mutant inverting the caveat to "which by
+            # construction they ARE" was killed only by the doc's hand-copied block, so a
+            # re-copy laundered it - turning the hedge into an assertion that three
+            # hand-picked injections ARE exchangeable trials, in the tool and the doc at once.
+            # Asserting the word alone cannot tell the caveat from its negation.
+            assert (
+                "which by construction they are" in out and "not - each targets" in out
+            ), f"{detected}/{checked}: the caveat no longer NEGATES exchangeability: {out!r}"
+            # ADR-0023: the rate's antecedent must stay on the page. Without it "the true
+            # rate" reads as the rate at which real regressions are caught, which three
+            # synthetic injections do not measure.
+            assert "over perturbations APPLIED, not over behaviour changes" in out, (
+                f"{detected}/{checked}: the bound no longer says what it is a rate OVER: "
+                f"{out!r}. The denominator includes a perturbation the model resisted."
+            )
+            # ORDER, not just presence. "That rate" needs an antecedent immediately above it,
+            # and a caveat printed before the number it qualifies reads as a caveat on the
+            # fraction instead. [M] mutation-sentinel: reordering was killed ONLY by the doc's
+            # hand-copied block, which a re-copy launders.
+            lines = recall_summary(self._t(detected=detected, checked=checked))
+            bound_at = next(i for i, x in enumerate(lines) if "lower bound" in x)
+            caveat_at = next(i for i, x in enumerate(lines) if "That rate is over" in x)
+            assert bound_at < caveat_at, (
+                f"{detected}/{checked}: the caveat precedes the bound it qualifies, so "
+                f'"That rate" points at the fraction instead: {lines!r}'
+            )
+
+    def test_a_corrupt_tally_cannot_publish_a_flattering_bound(self):
+        """[M] MP-82 arithmetic sweep: `detected > checked` is the ONE input in the whole
+        space that makes the complement overstate. `1 - upper_bound_95(-1, 3)` reaches
+        neither guard (`-1 >= 3` is False), leaves `range(k+1)` empty so the CDF is
+        identically 0, and the bisection collapses to ~3.1e-61 - printing **100.0%**,
+        certainty of perfect detection, from a tally that cannot be right.
+
+        Unreachable through `recall_tally` today: no `RECALL_OUTCOMES` row reaches the
+        numerator without the denominator. That is a property of the TABLE, not of the
+        formula, and nothing asserted the formula was safe if the table ever changed. Raising
+        beats clamping: a clamp would publish a plausible number for corrupt input.
+        """
+        with pytest.raises(ValueError, match="corrupt tally"):
+            recall_summary(self._t(detected=4, checked=3))
+        # and the table genuinely cannot produce it, which is why this is a tripwire
+        t = recall_tally(["detected", "detected", "missed", "unmeasured"])
+        assert t["detected"] <= t["checked"], t
 
 
 class TestBuildRow:
@@ -638,8 +805,12 @@ def test_the_prose_headline_matches_the_fraction_the_harness_printed():
 
 def test_the_published_lower_bound_is_the_one_the_repos_own_helper_computes():
     """`[M]` claims-auditor 2026-08-24: `13.5%` could be edited to a flattering-and-wrong
-    `66.7%` with the suite green. The tool does not print this interval yet (MP-82), so the
-    doc is its only surface and nothing else checks it.
+    `66.7%` with the suite green, because the doc was this bound's only surface.
+
+    Since MP-82 the tool prints the bound too, and the verbatim-quote guard above compares
+    that line against this same document - so the doc's prose and the doc's quoted block are
+    now pinned to the same helper from two directions. This test still earns its place: it is
+    the only one that reads the PROSE figure, which the quoted block does not contain.
 
     Derived from the doc's own tally rather than hardcoded, so it follows `PERTURBATIONS`
     when that grows.

@@ -21,6 +21,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   confidence 1.00 that did not happen. See ADR-0015.
 
 ### Changed
+- **The detection arm of `scripts/fp_measurement.py` now publishes a confidence interval, as
+  the false-positive arm already did.** The two arms were asymmetric in the direction that
+  flatters detection. `[M]` `fp_summary` printed `  False-positive rate: {fp}/{scored} =
+  {rate}` *and* a one-sided 95% Clopper-Pearson **upper** bound; `recall_summary` printed only
+  `  Detection: {d}/{checked} injected perturbations caught` — no interval — even though
+  `README.md` and `docs/fp-measurement.md` both already published the **lower** bound. The
+  tool understated what the documents conceded, and it is the tool a user runs.
+  `[M]` The floor is the same helper by complement, `1 - upper_bound_95(misses, checked)`:
+  the run of record, **2 of 3**, bounds the true rate at **13.5%**; a hypothetical `3/3`
+  bounds it at only **36.8%**. `[M]` Nothing about the accounting moved — numerator,
+  denominator and both exclusions are unchanged, `git diff` touches three hunks in that file
+  (two docstrings and `recall_summary`), and no tally assertion in the suite was edited.
+  **This arm** still prints no point percentage: `3/3 = 100%` would be the withdrawn
+  `0/8 = 0%` mirrored (ADR-0022). The FP arm does print `= {rate}` beside its fraction —
+  ADR-0022 kept it, with the bound and the exclusion counts alongside — so the two arms are
+  now symmetric on the *interval*, not on the point estimate. The bound is over
+  **perturbations applied**, not over behaviour changes — the denominator includes the case
+  the model resisted, and ADR-0023 forbids this arm asserting a perturbation changed
+  behaviour — and it carries the exchangeability caveat both documents carry: three
+  perturbations chosen one per signal are by construction not exchangeable trials.
+  No interval is printed when nothing was checked, `[M]` the one shape the document's
+  verbatim quote provably could not see.
 - **The false-positive rate now excludes trials that could not have produced a false alarm —
   and the previously published `0/8` result is WITHDRAWN.** `scripts/fp_measurement.py` counted
   a scenario as a passed trial even when the engine measured no effect on any channel. `[M]`

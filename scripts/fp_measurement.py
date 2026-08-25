@@ -6,7 +6,10 @@ set, and confirm it still catches genuine regressions.
   `unchanged` is, by definition, a false alarm from model nondeterminism. This is the
   north-star metric ("if Modelpin says it broke, it broke").
 - Detection: inject a controlled behavior change into a few scenarios and confirm the
-  engine flags it — so a low FP rate isn't just "always unchanged".
+  engine flags it — so a low FP rate isn't just "always unchanged". Published with its own
+  one-sided 95% bound, in the direction that constrains the claim: a LOWER bound on the
+  detection rate, as the FP arm publishes an UPPER bound on the false-positive rate. Neither
+  arm publishes a point percentage over a handful of trials (MP-82, ADR-0022).
 
 BYO-key: reads OPENAI_API_KEY from the environment. Real (cheap) API calls. Run:
     python scripts/fp_measurement.py --model gpt-4o-mini --runs 5
@@ -116,6 +119,19 @@ def upper_bound_95(k: int, n: int, alpha: float = 0.05) -> float:
 
     That is not a corner case here. This harness exists to be pointed at tool-using
     scenarios at temperature > 0, which is precisely the surface where k > 0 is expected.
+
+    TWO CALLERS, OPPOSITE DIRECTIONS (MP-82). `fp_summary` passes false positives and prints
+    the result as an upper bound on the FP rate. `recall_summary` passes MISSES and prints
+    `1 - upper_bound_95(misses, checked)` as a LOWER bound on the detection rate. The name
+    says "upper" because that is what this function returns; the detection arm's floor is its
+    complement, not a second formula. [M] Both published figures reduce to this one helper:
+    13.5% at 2/3 detected, 36.8% at 3/3.
+
+    The `k >= n` guard is therefore reached from both ends, and means different things at
+    each: for the FP arm it is "every trial failed, so the rate could be anything up to 1";
+    for the detection arm the reflected argument makes it "nothing was detected, so the floor
+    is 0". [M] Both are exact, but the second is exact by reflection rather than by design -
+    a future edit to this guard for FP reasons would silently move the detection floor.
     """
     if n <= 0 or k >= n:
         return 1.0
@@ -441,16 +457,59 @@ def recall_summary(t: dict[str, int]) -> list[str]:
     [M] bug-reproducer 2026-08-23: deleting `main()`'s two closing `print()` calls - every
     detection number the run produced - left all 302 tests green.
 
-    The rate is a bare fraction, deliberately. `3/3` over three scenarios is a number an
-    interval would immediately deflate, and this arm publishes no interval yet (MP-82); a
-    printed `= 100%` would be the FP arm's withdrawn `0/8 = 0%` in the other direction.
+    The fraction carries an interval and never a percentage (MP-82). `3/3` over three
+    scenarios is a number an interval immediately deflates - [M] its 95% one-sided lower bound
+    is 36.8% - and a printed `= 100%` would be the FP arm's withdrawn `0/8 = 0%` in the other
+    direction. Until MP-82 this arm published the bare fraction while `README.md` and
+    `docs/fp-measurement.md` already published the bound, so the two arms were asymmetric in
+    exactly the direction that flatters detection: the FP arm bounded its own claim and this
+    one did not.
+
+    [M] The bound is over PERTURBATIONS APPLIED, not over behaviour changes. The denominator
+    includes `decline_pii`, which the model resisted on the run of record, and ADR-0023 forbids
+    this arm from asserting that any perturbation changed behaviour - so the published line
+    says "the true rate", mirroring the FP arm, and claims nothing about real changes.
     """
     d, checked = t["detected"], t["checked"]
+    if d > checked:
+        # Unreachable through `recall_tally` - no RECALL_OUTCOMES row reaches the numerator
+        # without the denominator, and a table invariant pins that. It is a tripwire because
+        # it is the ONE input to the bound that overstates: [M] at d=4, checked=3 the
+        # complement `1 - upper_bound_95(-1, 3)` returns 100.0%, certainty of perfect
+        # detection, from a corrupt tally. A silent clamp would publish a flattering number.
+        raise ValueError(f"corrupt tally: detected={d} exceeds checked={checked}")
     # "perturbations", not "injected regressions": the injection changes the INSTRUCTION,
     # and whether a regression resulted is precisely what this arm measures. [M] 1 of the 3
     # entries in PERTURBATIONS (`decline_pii`) produced no behaviour change at all on the run
     # of record, because the model resisted it.
     out = ["", f"  Detection: {d}/{checked} injected perturbations caught"]
+    if checked:
+        # A LOWER bound, by complement: `upper_bound_95` bounds a rate of k failures, so the
+        # misses go in and the detection floor comes out. Gated on `checked` exactly as the FP
+        # arm gates on `scored` - at checked=0 the helper's `n <= 0` guard returns 1.0 and the
+        # complement prints 0.0%, a measured-looking floor beside a block that says nothing
+        # was measured.
+        lb = 1 - upper_bound_95(checked - d, checked)
+        out.append(
+            f"  95% lower bound on the true rate: {lb:.1%} "
+            f"(one-sided Clopper-Pearson, n={checked})"
+        )
+        # Printed WITH the bound, never after it: both doc surfaces carry this caveat beside
+        # the same number, and a tool that published the bound bare would be more confident
+        # than the documents it is aligning to.
+        #
+        # The first line names what the rate is OVER. [M] fp-guardian and the MP-82 adversary
+        # both flagged that "the true rate" has a weaker antecedent here than in the FP arm,
+        # whose preceding line NAMES its rate ("False-positive rate: ..."); this arm's reads
+        # "Detection: 2/3 injected perturbations caught". Without the qualifier a reader can
+        # take it as the rate at which Modelpin catches real regressions, which three
+        # synthetic injections do not measure - and ADR-0023 forbids this arm from asserting
+        # any perturbation changed behaviour at all.
+        out += [
+            "  That rate is over perturbations APPLIED, not over behaviour changes; and the",
+            "  interval treats them as exchangeable trials, which by construction they are",
+            "  not - each targets a different signal.",
+        ]
     out.append(f"  Unmeasured (excluded): {t['unmeasured']}")
     if t.get("errors"):
         out.append(f"  Provider errors (never reached a verdict): {t['errors']}")
