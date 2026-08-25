@@ -20,6 +20,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   fully correct `check --fixtures` against such a baseline reports regressions at
   confidence 1.00 that did not happen. See ADR-0015.
 
+### Fixed
+- **The README no longer promises a "zero cost" cross-vendor check that bills your OpenAI key.**
+  `README.md` and `actions/README.md` both offered a free Groq key as a zero-cost third vendor.
+  `[M]` The command printed under that heading loads the default `modelpin.yaml`, which
+  `mp init` scaffolds with `judge_model: gpt-4o-mini`; the semantic judge is OpenAI-only, so a
+  reader who exported only `GROQ_API_KEY` — exactly as the surrounding text instructs — got
+  `error: semantic judge ('gpt-4o-mini'): OPENAI_API_KEY is not set` and exit 1 **before any
+  replay**, while a reader whose OpenAI key was still exported was silently billed. Only the
+  *replay* side is free: `check` reads its baseline off disk and replays only the candidate.
+  Both passages now say so and point at removing `judge_model` for a genuinely free run. The
+  `--provider fake` "zero cost and no key" claim is unaffected and remains true — that path
+  builds no judge at all.
+
 ### Changed
 - **The detection arm of `scripts/fp_measurement.py` now publishes a confidence interval, as
   the false-positive arm already did.** The two arms were asymmetric in the direction that

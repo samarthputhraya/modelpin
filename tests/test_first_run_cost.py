@@ -214,8 +214,10 @@ class TestReplayPlan:
 
     def test_a_configured_judge_is_disclosed_as_its_own_axis(self) -> None:
         plan = _replay_plan(8, "examples/suite", 5, "openai", judge_model="gpt-4o-mini")
-        # semantic_divergence_flags judges at most once per run per side => 2 per
-        # scenario-run. That equals 2 per replay only when ONE side is replayed live.
+        # semantic_divergence_flags judges at most once per run per side. BOTH sides hold
+        # `runs` traces in this call, so the bound is 2 x scenarios x runs; that is a
+        # property of this input, NOT a general rule -- `check` against a stored baseline of
+        # a different depth discloses `sum(len(stored)) + scenarios x runs` (ADR-0026).
         assert "up to 80 judge calls" in plan, plan
 
     def test_no_judge_configured_means_no_judge_claim(self) -> None:
@@ -250,7 +252,7 @@ class TestReplayPlan:
         assert "up to 140 judge calls" in one, one
         assert (
             "up to 140 judge calls" in two
-        ), f"the judge axis must not scale with sides - it is per scenario-run: {two!r}"
+        ), f"the judge axis must not scale with sides - it counts RUNS per side: {two!r}"
         assert "280" not in two, f"judge calls derived from replays instead of runs: {two!r}"
 
     def test_ref_runs_defaults_to_the_pre_MP_72_line(self) -> None:

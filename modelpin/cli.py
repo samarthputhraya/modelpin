@@ -165,8 +165,9 @@ def _replay_plan(
     `MAX_TOOL_TURNS` completions, so replays FLOOR the paid calls and never cap them.
     ADR-0019 governs this contract, including why `fake` must claim no cost at all.
 
-    `sides` is how many models are replayed LIVE: 1 for `baseline`/`check`, whose reference
-    traces come off disk, and 2 for `report`, which replays `--from` and `--to` both. It
+    `sides` is how many models are replayed LIVE: 1 for `baseline` (which WRITES the store
+    via `save_baseline` and has no reference side at all) and for `check` (whose reference
+    traces come off disk), and 2 for `report`, which replays `--from` and `--to` both. It
     scales replays and therefore paid calls -- but deliberately NOT the judge axis, because
     `semantic_divergence_flags` scores every run on both sides regardless of where those
     traces came from. [M] MP-70: the same 14-scenario suite queues 70 replays under `check`
@@ -720,8 +721,9 @@ def report(
     n = _resolve_runs(runs, cfg)
     prov = _resolve_provider(provider, cfg)
     adapter = _adapter(prov, fixtures)
-    # Both sides are replayed live here, so the run is twice the size of a `check` over the
-    # same suite -- and this is the user's own key (ADR-0008). Disclose before spending it.
+    # Both sides are replayed live here, so the REPLAYS are twice a `check` over the same
+    # suite. The JUDGE axis is not -- `check` reads its reference side off disk, so its judge
+    # figure tracks the stored baseline's depth (ADR-0026). User's own key (ADR-0008).
     plan = _replay_plan(len(scenarios), suite_dir, n, prov, cfg.judge_model, sides=2)
     console.print(f"[dim]provider={prov} from={from_} to={to} runs={n} match={mode} | {plan}[/]")
     _preflight_or_fail(adapter, prov)
