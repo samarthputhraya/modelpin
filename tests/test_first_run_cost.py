@@ -239,7 +239,9 @@ class TestReplayPlan:
         The judge scores every run on BOTH sides whatever their origin (semantic.py:68-69),
         so its bound is 2 x scenarios x runs and is INDEPENDENT of how many sides were
         replayed live. [M] the same 14-scenario suite: `check` queues 70 replays, `report`
-        queues 140, and both make at most 126 judge calls. Deriving the judge count from
+        queues 140, and `report` makes at most 126 judge calls. `check` matches that figure
+        only when the stored baseline holds `runs` traces per scenario -- otherwise its
+        reference side is the RECORDED count (MP-72, `ref_runs`). Deriving the judge count from
         `replays` would bill `report`'s user a claim 2x too large - ADR-0019's rejected
         false-point-estimate defect, pointed the other way.
         """

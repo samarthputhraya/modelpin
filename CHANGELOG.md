@@ -93,9 +93,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `--runs 20` and checked at `--runs 5` scores 20 reference runs against 5 candidate ones.
   `check` therefore reads the stored run count off disk rather than assuming `--runs` of
   them. `[M]` before this was fixed, that pairing disclosed `up to 10 judge calls` for one
-  scenario and then made **24** (`tests/test_first_run_cost.py::
-  test_check_judge_disclosure_bounds_the_judge_calls_it_makes`). Under-disclosing a paid axis
-  is the same ADR-0019 violation as publishing an exact count, pointed the other way. The
+  scenario and then made **24** — reproduce with
+  `pytest tests/test_first_run_cost.py -k check_judge_disclosure_bounds`. Under-disclosing a
+  paid axis is the same ADR-0019 violation as publishing an exact count, pointed the other
+  way. The
   bound stays loose on purpose: an output identical to the modal reference skips the judge,
   so a real run makes fewer calls than `J`, and `up to` is the honest word for that.
 - **`mp report` discloses a two-sided run as two-sided.** It replays `--from` *and* `--to`,
@@ -108,8 +109,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   user saw `runs=5` with no hint that 140 replays were queued, and learned the scenario count
   only from the results table — after the calls had been billed. The judge figure is
   deliberately **not** doubled: for `report` the semantic judge scores every run on both
-  sides whether or not both were replayed live, so it is bounded by `2 × scenarios × runs`,
-  the same figure `mp check` discloses over the same suite. The header also drops its
+  sides whether or not both were replayed live, so it is bounded by `2 × scenarios × runs`.
+  `mp check` discloses that same figure over the same suite **only when the stored baseline
+  holds exactly `runs` traces per scenario** — otherwise its reference side is the recorded
+  count, per the judge-axis note above. The header also drops its
   now-redundant `suite=<dir>` token, which the disclosure line names.
 - **`mp init` names the scenario set it adopted.** When a `modelpin.yaml` already exists,
   `init` honours its `scenarios_dir` (0.1.2 behaviour, unchanged) but now also prints how

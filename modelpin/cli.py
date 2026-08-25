@@ -170,7 +170,9 @@ def _replay_plan(
     scales replays and therefore paid calls -- but deliberately NOT the judge axis, because
     `semantic_divergence_flags` scores every run on both sides regardless of where those
     traces came from. [M] MP-70: the same 14-scenario suite queues 70 replays under `check`
-    and 140 under `report`, but discloses `up to 140 judge calls` either way. (That ceiling
+    and 140 under `report`. Both disclose `up to 140 judge calls` WHEN the reference side
+    holds `runs` traces per scenario; see `ref_runs` below for when `check`'s does not.
+    (That ceiling
     is deliberately loose: a real run needs at most 126, because an output identical to the
     modal baseline skips the judge -- `up to` is the honest word for a bound.) Deriving the
     judge count from `replays` would overstate `report`'s judge bill 2x -- the false-claim
@@ -183,9 +185,10 @@ def _replay_plan(
     `--runs` bounds the replay, never the recording -- so a baseline taken at `--runs 20`
     and checked at `--runs 5` scores 20 reference runs, not 5. [M] MP-72: that pairing
     issues 24 judge calls for ONE scenario against a `2 x 1 x 5 = 10` disclosure. Left as
-    None the reference side is assumed to be `count * runs`, which is EXACT for `baseline`
-    (no judge at all) and for `report` (both sides come from `replay()`, so both are
-    `runs` by construction) -- hence those two render byte-identically to before.
+    None the reference side is assumed to be `count * runs`: VACUOUS for `baseline` (the
+    judge clause never renders, so the value is unreachable) and EXACT for `report` (both
+    sides come from `replay()`, so both are `runs` by construction) -- hence those two
+    render byte-identically to before.
     Under-disclosing a paid axis is the same ADR-0019 violation as claiming an exact
     count, merely pointed the other way again.
     """
