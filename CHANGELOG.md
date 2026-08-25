@@ -77,13 +77,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`mp baseline`, `mp check` and `mp report` state how many replays a run will make,
   before making them.** The pre-spend line was `provider=… model=… runs=…`; it now also
   carries `N scenario(s) from <dir> -> M replays, >=M paid calls`, and
-  `+ up to 2M judge calls` when a `judge_model` is configured. The `>=` is deliberate: one
+  `+ up to J judge calls` when a `judge_model` is configured. The `>=` is deliberate: one
   replay is one adapter call, but a `kind: agent` scenario's replay drives a tool loop of up
   to `MAX_TOOL_TURNS` completions, so replays are a **floor** on the paid calls of a run that
   completes, never a ceiling. (A run cut short — a provider error, a skipped scenario — bills
   less.) `mp check` counts only scenarios that have a baseline, since the rest are skipped
   rather than replayed. `--provider fake` claims no cost at all — that path replays canned
   traces and bills nothing. See ADR-0019.
+
+  `J` is the judge axis, and it counts **runs, not replays**: the semantic judge scores every
+  run on both sides, so `J = <reference runs> + <candidate runs>`. For `baseline` there is no
+  judge; for `mp report` both sides come from this run's own `replay()`, so both are `runs`
+  and `J = 2 × scenarios × runs`. For `mp check` the reference side is whatever
+  `mp baseline` **recorded**, which `--runs` does not bound — a baseline recorded at
+  `--runs 20` and checked at `--runs 5` scores 20 reference runs against 5 candidate ones.
+  `check` therefore reads the stored run count off disk rather than assuming `--runs` of
+  them. `[M]` before this was fixed, that pairing disclosed `up to 10 judge calls` for one
+  scenario and then made **24** (`tests/test_first_run_cost.py::
+  test_check_judge_disclosure_bounds_the_judge_calls_it_makes`). Under-disclosing a paid axis
+  is the same ADR-0019 violation as publishing an exact count, pointed the other way. The
+  bound stays loose on purpose: an output identical to the modal reference skips the judge,
+  so a real run makes fewer calls than `J`, and `up to` is the honest word for that.
 - **`mp report` discloses a two-sided run as two-sided.** It replays `--from` *and* `--to`,
   so its line reads `N scenario(s) from <dir> x 2 models -> M replays` and its replay and
   paid-call figures are **twice** what the same suite costs under `mp check` — exactly twice

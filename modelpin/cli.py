@@ -156,6 +156,7 @@ def _replay_plan(
     provider: str,
     judge_model: Optional[str],
     sides: int = 1,
+    ref_runs: Optional[int] = None,
 ) -> str:
     """Describe the size of the run that is ABOUT to happen, for the pre-spend line.
 
@@ -174,6 +175,19 @@ def _replay_plan(
     modal baseline skips the judge -- `up to` is the honest word for a bound.) Deriving the
     judge count from `replays` would overstate `report`'s judge bill 2x -- the false-claim
     defect ADR-0019 rejects, merely pointed the other way.
+
+    `ref_runs` is the TOTAL number of reference-side runs the judge will score, summed
+    over the scenarios being replayed. It exists because `count * runs` is the CANDIDATE
+    side's size and only accidentally the reference side's. `check` reads its reference
+    traces off disk, and `load_baseline` returns however many runs were RECORDED --
+    `--runs` bounds the replay, never the recording -- so a baseline taken at `--runs 20`
+    and checked at `--runs 5` scores 20 reference runs, not 5. [M] MP-72: that pairing
+    issues 24 judge calls for ONE scenario against a `2 x 1 x 5 = 10` disclosure. Left as
+    None the reference side is assumed to be `count * runs`, which is EXACT for `baseline`
+    (no judge at all) and for `report` (both sides come from `replay()`, so both are
+    `runs` by construction) -- hence those two render byte-identically to before.
+    Under-disclosing a paid axis is the same ADR-0019 violation as claiming an exact
+    count, merely pointed the other way again.
     """
     replays = count * runs * sides
     plan = f"{count} scenario(s) from {src_dir}"
@@ -184,7 +198,8 @@ def _replay_plan(
         return plan  # canned traces, no network, nothing billed
     plan += f", >={replays} paid calls"
     if judge_model:
-        plan += f" + up to {2 * count * runs} judge calls"
+        judged = (count * runs if ref_runs is None else ref_runs) + count * runs
+        plan += f" + up to {judged} judge calls"
     return plan
 
 
@@ -565,7 +580,12 @@ def check(
     # Only scenarios that HAVE a baseline are replayed (the rest are skipped below), so
     # count those - an inflated pre-spend number is its own kind of false claim. MP-32.
     billable = sum(1 for s in scenarios if base.get(s.id))
-    plan = _replay_plan(billable, src_dir, n, prov, cfg.judge_model)
+    # The judge scores the STORED baseline runs, however many were recorded -- `--runs`
+    # bounds this run's replays, not a past run's recording. Counting the traces on disk
+    # rather than assuming `n` of them is what keeps `up to N judge calls` a bound when a
+    # 20-run baseline is checked at `--runs 5`. MP-72.
+    ref_runs = sum(len(t) for t in (base.get(s.id) or [] for s in scenarios))
+    plan = _replay_plan(billable, src_dir, n, prov, cfg.judge_model, ref_runs=ref_runs)
     console.print(
         f"[dim]provider={prov} from={from_model} to={to} runs={n} match={mode} | {plan}[/]"
     )
