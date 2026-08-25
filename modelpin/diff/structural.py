@@ -132,10 +132,10 @@ def name_trajectory_is_stable(
 ) -> bool:
     """Is the tool-NAME trajectory unimodal on each side AND identical across them?
 
-    The precondition for running the argument gate at all, and the whole reason this fix is
-    false-positive-neutral. When the name trajectory is itself jittery, the NAME gate is
-    already the responsible signal and the argument key is only refining noise — letting
-    both gates fire on the same pool is what turns two tests into a raised error rate.
+    The precondition for running the argument gate at all. When the name trajectory is itself
+    jittery, the NAME gate is already the responsible signal and the argument key is only
+    refining noise — letting both gates fire on the same pool is what turns two tests into a
+    raised error rate.
 
     [M] Exhaustive enumeration, 286 pool shapes x C(10,5) split-halves = 72,072 relabelings
     under a true null (2 names x 2 payloads):
@@ -143,6 +143,35 @@ def name_trajectory_is_stable(
         + argument gate, no precondition           raises both the rate and the 12/252 ceiling
         + argument gate, THIS precondition  916/72072 = 1.2710%   worst pool 12/252
     +0.0056 percentage points, and the pre-existing worst-case ceiling is unchanged.
+
+    RETRACTED 2026-08-25 (MP-105 / fp-guardian): this docstring previously called the
+    precondition "the whole reason this fix is false-positive-neutral". **The fix is not
+    false-positive-neutral, and the enumeration above structurally cannot show that it is**
+    -- its null carries TWO payloads, while [M] the gate fires only when the two sides are
+    payload-disjoint AND each side is internally concentrated, so a repertoire fixed at 2
+    prices a different signal from the one that ships. [M] `__init__.py` sets
+    `verdict = regression` on `arg_regressed` with no conjunction with `tool_regressed`: this
+    is an INDEPENDENT verdict-raising path that adds false-positive mass to exactly the pools
+    the ceiling argument below leaves untouched -- pools that were 0/252 before.
+
+    What the precondition DOES buy is narrower, verified more strongly than the retracted
+    claim, and still load-bearing:
+
+    1. [M] The two gates are mutually exclusive PER POOL, not merely per split. This function
+       requires all 2N runs to share ONE name key, which is split-independent, so `tool_tvd`
+       is exactly 0.0 whenever `args_compared` holds -- 0 counterexamples over 191,808 pool
+       pairs x 4 match modes. Without it the two channels could stack inside one pool.
+    2. [M] The argument channel does not raise the name gate's worst-case PER-POOL CEILING,
+       and this does NOT depend on the 2-payload null. Exhaustive over every payload multiset,
+       equivalence modes: N=3 0/20 vs 0/20; N=4 2/70 vs 2/70; N=5 12/252 vs 12/252; N=6 44/924
+       vs 44/924 -- equal at every N enumerated, with the N=5 argument worst pool reached at
+       repertoire 6-7. Directional modes at N=5: 2/252 vs 12/252, strictly lower. (N>=7 not
+       enumerated.) The ceiling comes from ALPHA's discreteness capping each channel; the
+       precondition is what stops them stacking.
+
+    CEILING IS NOT RATE, and conflating them is how the retracted claim was born. The
+    per-pool ceiling is genuinely unchanged while the aggregate RATE rises from 0/0 on `main`
+    to percent-scale. See `scripts/arg_gate_price.py`.
     """
     base_names = {canonical_sequence(tool_call_sequence(t), mode) for t in baseline_traces}
     cand_names = {canonical_sequence(tool_call_sequence(t), mode) for t in candidate_traces}

@@ -68,6 +68,80 @@ unchanged, `arg_numeric_rounding` emits 1 distinct payload in 16 runs on `gpt-4o
 on `gpt-4.1-mini`. See `examples/calibration/README-arguments.md` and the
 `arg-repertoire-*.json` artifacts beside this file.
 
+## `[M] 2026-08-25` The gate's added false positives, priced OFFLINE
+
+The live run above could not price condition 6 — it scored 7 trials, all one scenario. But the
+dominant term never needed a key. `arg-repertoire-*.json` in this directory commits payload
+**frequencies**, and [`scripts/arg_gate_price.py`](../../../scripts/arg_gate_price.py) deals
+those actual runs into two disjoint sides and drives the **real** `diff_scenario`, classified
+by the repo's own ADR-0022 predicate. Both sides come from one model's own runs, so every
+non-`unchanged` verdict is a false positive by construction.
+
+Artifact: [`arg-gate-price.json`](arg-gate-price.json) — 15 repertoire cells, 3,000 replicates
+each, `git_sha` and seed recorded.
+
+| | split-half FP rate (of scored) |
+|---|---|
+| Worst cell: `arg_optional_fields`, `gpt-4.1-mini`, `--match subset`, **N=3** | **4.18%** (66/1580) |
+| `arg_freetext_note`, `gpt-4.1-mini`, `strict`, N=6 | 3.58% (76/2122) |
+| `arg_numeric_rounding`, `gpt-4.1-mini`, `strict`, N=5 | 3.19% (53/1664) |
+| Range across the 26 non-zero cells of 48 | **0.08% – 4.18%** |
+
+`[M]` **Against 0/0 on `main`**, where the harness prints its *** THIS RUN MEASURED NOTHING ***
+banner because nothing under `modelpin/diff/` reads `.arguments`. The right comparison is an
+absolute **addition** of false-positive mass, not a ratio.
+
+### Three things this changes about how the gate should be described
+
+**1. Disjointness is not the firing condition.** `[M]` It is necessary, not sufficient. At N=5,
+`a,a,a,a,a` vs `b,b,b,b,b` fires at p=0.0079 and `a,a,a,b,b` vs `c,c,c,d,d` at p=0.0159 — but
+`a,a,a,b,c` vs `d,d,e,f,g` is *fully disjoint* and does **not** fire (p=0.0873), and ten pooled
+distinct payloads give p=1.0 and are excluded outright. `permutation_pvalue_distribution` is
+relabeling-invariant, so at maximum jitter the gate goes **silent**. The risk lives in the
+middle: sides concentrated enough to look decisive, different enough across sides to be disjoint.
+
+**2. The match modes invert, so a number quoted for one mode is a false zero for the other.**
+`[M]` At N=3 the equivalence modes cannot fire at all (0.00%) while `subset` reaches 4.18%; by
+N=5 that reverses and `subset` falls to 0.00% while `strict` runs at ~3%.
+
+**3. Where the N-curve peaks is an artifact of the estimator.** `[M]` Without replacement
+(headline) `arg_freetext_note` peaks at N=6; with replacement the same 16 runs peak at N=5. An
+earlier draft of this analysis published "`runs: 5` is the FP peak" as a finding — it is a
+property of the resampling scheme, not of the gate. Both estimators are reported side by side
+for that reason.
+
+### What the number is not
+
+- `[A]` **Not a rate for `mp check` as shipped.** The synthetic traces carry no assertions, no
+  refusal and no judge, so this is the argument channel in isolation. The shipped verdict is an
+  OR across five channels, so the gate's *marginal* contribution there is smaller.
+- `[M]` **One false-positive mode only** — sampling noise against a same-model null. It
+  structurally cannot see the mode recorded above, two *different* models emitting
+  different-but-equivalent payloads (`3.36` vs `3.357` kg). That mode remains unpriced.
+- `[M]` **Three scenarios, not seven.** Four shapes emit one payload in 16 runs on every model
+  measured and contribute 0 to both numerator and denominator. MP-105's exchangeability caveat
+  carries forward: replicates buy resolution, never scenario coverage.
+- `[M]` **Weighting is a choice.** At `strict`, N=5 the same data reads 2.11% replicate-pooled,
+  1.69% scenario-mean over the varying shapes, and 0.68% scenario-mean over all seven. The
+  artifact publishes all three rather than picking one.
+- `[M]` **No interval over replicates.** They are draws from an assumed population; a
+  Clopper-Pearson bound over them shrinks with compute (3.82% at 1k replicates, 3.27% at 4k at
+  a fixed 2.8% point estimate) and `upper_bound_95` raises `OverflowError` past n≈3,000 by
+  design. `[M]` The binding uncertainty is the repertoire estimate itself: Good-Turing puts
+  **31.2% / 37.5% / 43.8%** of the payload mass on values the 16 runs never saw, and truncating
+  that tail moves the rate in **both** directions — it raises within-side concentration while
+  lowering cross-side disjointness. Nothing here may be called conservative.
+- `[A]` **Exchangeability is untestable for these artifacts.** They store counts. `arg_repertoire.py`
+  now also records `payload_sequence`, so runs measured from here on can be checked for drift.
+
+### What it means operationally
+
+`[A]` A user whose suite has J scenarios carrying a jittering argument sees a per-check false
+alarm with probability `1-(1-r)^J` on the **unconditional** rate (2.20% at the worst cell), not
+the conditional one: **8.5% at J=4, 16.3% at J=8**. Both J and the independence are assumptions.
+`[M]` An earlier version of this estimate quoted ~13% by compounding a conditional rate; that is
+the wrong denominator.
+
 ## What this DOES support
 
 - `[M]` **Zero false positives in 7 scored trials**, on the one shape that varies. The gate saw

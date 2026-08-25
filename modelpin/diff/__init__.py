@@ -86,15 +86,21 @@ MIN_TOOL_TVD = 0.5
 #:     N=5  ALPHA/2 coincides exactly with disjointness (the default, hence the trap)
 #:     N>=6 ALPHA/2 fires on NON-disjoint changes (N=6, 5-of-6: p = 0.015152)
 #: [M] The floor stated here is exactly "disjoint and significant" at every N in 3..8, and it
-#: costs nothing against that alternative: over 72,072 exhaustive relabelings under a true
-#: null both land on 916/72072 = 1.2710% (status quo 912/72072 = 1.2654%), both hold the
-#: worst pool at 12/252, and both give 0.0722% / 0.1804% on the pure argument-jitter channel.
+#: costs nothing AGAINST THAT ALTERNATIVE (halving ALPHA): over 72,072 exhaustive relabelings
+#: under a true null both land on 916/72072 = 1.2710% (status quo 912/72072 = 1.2654%), both
+#: hold the worst pool at 12/252, and both give 0.0722% / 0.1804% on the pure argument-jitter
+#: channel. That is a comparison of two candidate floors, NOT a statement that the signal is
+#: free: this null carries two payloads and cannot price a real repertoire.
 #:
-#: [A] not [M]: no corpus in this repo contains RUN-TO-RUN argument variance -- 5 of 65
-#: non-empty tool calls carry arguments at all and all 5 are identical -- so the REAL-WORLD
-#: false-positive rate of this signal is unmeasured, and every number above is synthetic.
-#: Falsifier: MP-54's live tool scenarios at temperature > 0 flag one scenario whose argument
-#: change a human calls equivalent. fp-guardian protected.
+#: [A] DISCHARGED 2026-08-25 -- its own falsifier fired. This previously read: "no corpus in
+#: this repo contains RUN-TO-RUN argument variance ... so the REAL-WORLD false-positive rate
+#: of this signal is unmeasured, and every number above is synthetic. Falsifier: MP-54's live
+#: tool scenarios at temperature > 0 flag one scenario whose argument change a human calls
+#: equivalent." [M] MP-105 committed measured repertoires under examples/calibration/results/
+#: that DO carry run-to-run argument variance (arg_numeric_rounding: 10 distinct payloads in
+#: 24 runs on gpt-4.1-mini), and pricing the gate against them gives a peak added
+#: false-positive rate near 3.5% at the shipped `runs: 5`, against 0.0000% before this signal
+#: existed. The numbers above are still synthetic; they are no longer the only ones.
 #: [M] The equality is exact for every disjoint shape through N=21; at N=22 a genuinely
 #: disjoint pool scores 0.9999999999999999 and the gate silently does NOT fire (0 of 199,836
 #: non-disjoint pools ever reached 1.0, so the drift is one-directional and false-NEGATIVE).
@@ -246,8 +252,11 @@ def diff_scenario(
     # The gate runs ONLY when the name trajectory is stable on both sides and identical
     # across them. When names are themselves jittery the NAME gate is already the
     # responsible signal, and letting both fire on one pool is what turns two tests into a
-    # raised error rate. [M] That precondition is what keeps this fix false-positive-neutral:
-    # 1.2654% -> 1.2710% over 72,072 exhaustive relabelings, worst pool unchanged at 12/252.
+    # raised error rate. [M] That precondition holds the rate at 1.2654% -> 1.2710% over
+    # 72,072 exhaustive relabelings, worst pool unchanged at 12/252 -- but see the retraction
+    # in `name_trajectory_is_stable`: that null has TWO payloads and cannot see the channel
+    # this gate actually opens. The fix is NOT false-positive-neutral. [M] Priced on the
+    # committed repertoires it peaks near 3.5% at the shipped `runs: 5`.
     #
     # It also requires EQUAL runs per side, which is reachable: cli.py replays the candidate at
     # the current `runs` against a PERSISTED baseline, so `baseline --runs 5` then

@@ -185,8 +185,13 @@ def test_the_explanation_cannot_inject_rich_markup():
 
 
 def test_the_argument_gate_is_skipped_when_the_name_trajectory_is_unstable():
-    """The precondition that keeps this fix false-positive-neutral. When names are jittery
-    the NAME gate is the responsible signal; refining the key would only add noise."""
+    """The precondition that keeps the argument gate off a pool the NAME gate already owns.
+
+    Narrowed 2026-08-25: this docstring previously said "the precondition that keeps this fix
+    false-positive-neutral". [M] It is not — the gate raises verdicts on its own and its
+    measured cost peaks near 3.5% at the shipped `runs: 5`. What the precondition buys is that
+    two tests never fire on one pool.
+    """
     base = [_trace("o", [("web_search", {"q": f"q{i}"})], i) for i in range(5)]
     cand = [_trace("n", [("sql_query", {"q": f"s{i}"})], i) for i in range(5)]
     assert not name_trajectory_is_stable(base, cand)
@@ -210,6 +215,86 @@ def test_min_tool_arg_tvd_means_disjoint_in_the_equivalence_modes():
     # ... and the N=4 trap that ruled the alternative out.
     p4 = permutation_pvalue_distribution(["A"] * 4, ["B"] * 4)
     assert p4 <= ALPHA and p4 > ALPHA / 2
+
+
+def test_min_tool_arg_tvd_is_pinned_at_the_value_that_means_disjoint():
+    """`[M]` fp-guardian 2026-08-25: the test above cannot see this constant move.
+
+    It asserts `tvd >= MIN_TOOL_ARG_TVD` where `tvd` is literally `1.0`, so **every** value
+    at or below 1.0 satisfies it. `[M]` Mutating the constant `1.0 -> 0.8` in an isolated
+    checkout left the whole suite green. A calibrated constant on the north-star metric that
+    CI cannot defend is not calibrated.
+
+    So pin the VALUE, and pin what the value buys. `MIN_TOOL_ARG_TVD = 1.0` encodes the
+    structural rule *"no candidate run used a payload any baseline run used"*. `[M]` The
+    first step below 1.0 is not a small loosening — at N=5 a candidate pool sharing exactly
+    ONE payload with the baseline scores `tvd = 0.80, p = 0.04762`, which clears `ALPHA`.
+    Any threshold at or under 0.8 therefore admits an **overlapping** pool, and overlap is
+    the whole thing the rule excludes.
+
+    Not fitted, and it must not become fitted: `examples/calibration/arg_*` is role `score`
+    (ADR-0025), so the only surface where this could be tuned is the one surface where
+    tuning voids the measurement. Moving it needs new labelled data, not a green suite.
+    """
+    assert MIN_TOOL_ARG_TVD == 1.0, (
+        f"MIN_TOOL_ARG_TVD is {MIN_TOOL_ARG_TVD}, not 1.0. It is a structural rule ('no "
+        "candidate run used a payload any baseline run used'), not a dial. Below 1.0 the "
+        "gate fires on pools that overlap - see the table this test asserts."
+    )
+
+    # What the ceiling buys, stated as behaviour rather than as a number.
+    shared_one = total_variation_distance(["A"] * 5, ["A"] + ["B"] * 4)
+    assert math.isclose(shared_one, 0.8), f"expected tvd 0.8 for a 1-of-5 overlap, got {shared_one}"
+    assert permutation_pvalue_distribution(["A"] * 5, ["A"] + ["B"] * 4) <= ALPHA, (
+        "a 1-of-5 overlapping pool clears ALPHA on the p-gate, so the TVD ceiling is the "
+        "ONLY thing keeping it quiet."
+    )
+    assert shared_one < MIN_TOOL_ARG_TVD, (
+        "an overlapping pool now reaches the argument threshold. That is a false positive by "
+        "construction: the two sides used a payload in common."
+    )
+
+
+def test_the_argument_gate_declines_when_the_two_sides_have_unequal_runs():
+    """`[M]` fp-guardian 2026-08-25: deleting the equal-runs clause left the suite green.
+
+    `modelpin/diff/__init__.py` gates `args_compared` on
+    `len(baseline_traces) == len(candidate_traces)` first. Nothing covered it — `grep` for
+    an unequal-runs case across `tests/` found none — so a reviewer could delete it as a
+    redundant guard and CI would agree.
+
+    It is not redundant, and the branch's own comment says why: `[M]` the unconditional
+    true-null rate is **0.1953% at 5v5 but 1.9204% at 5v2 and 2.2968% at 8v2** — an order of
+    magnitude, against a status quo of 0.0000% because arguments were not diffed at all. The
+    regime is reachable by ordinary use, not by contrivance: `cli.py` replays the candidate
+    at the current `runs` against a PERSISTED baseline, so `mp baseline --runs 5` followed by
+    `mp check --runs 2` produces exactly 5 vs 2.
+
+    Declining is the correct behaviour, and `tool_arg_match is None` is how "declined" is
+    distinguished from "compared and matched" (`1.0`).
+    """
+    base = [_trace("o", [("log_weight", {"kg": 3.35658})], i) for i in range(5)]
+    cand = [_trace("n", [("log_weight", {"kg": 3.35671})], i) for i in range(2)]
+
+    result = diff_scenario("s", "o", "n", base, cand)
+
+    assert result.signals.tool_arg_match is None, (
+        "the argument gate compared 5 runs against 2. The equal-runs precondition is what "
+        "separates a 0.1953% true-null rate from 1.9204%; it is not redundant."
+    )
+    assert (
+        result.verdict != DiffVerdict.regression
+    ), "an unequal-runs comparison produced a regression from the argument channel alone."
+
+    # The same pools at EQUAL runs are exactly what the gate is for, so this is not a
+    # blanket 'never fire' assertion that a future edit could satisfy by disabling the gate.
+    equal = diff_scenario(
+        "s", "o", "n", base, [_trace("n", [("log_weight", {"kg": 3.35671})], i) for i in range(5)]
+    )
+    assert equal.signals.tool_arg_match is not None, (
+        "the gate declined at 5v5 too, so the assertion above proves nothing about the "
+        "equal-runs precondition specifically."
+    )
 
 
 def test_the_directional_modes_have_a_different_dead_zone():
