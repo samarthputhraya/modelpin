@@ -49,6 +49,30 @@ def _truthy(value: str) -> bool:
     return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
+#: The SDK reads BOTH of these and `GOOGLE_GENAI_USE_ENTERPRISE` WINS on conflict
+#: (`google-genai` 2.19.0, `_api_client.py:650-676`); `vertexai=` is documented there as the
+#: "legacy flag for `enterprise`". Reading only the legacy name is not a style choice - see
+#: `_vertex_selected`.
+_VERTEX_ENVS: tuple[str, ...] = ("GOOGLE_GENAI_USE_ENTERPRISE", "GOOGLE_GENAI_USE_VERTEXAI")
+
+
+def _vertex_selected() -> bool:
+    """Whether the caller asked for the Vertex backend, in the SDK's own precedence order.
+
+    [M] provider-sdk-verifier 2026-08-25: reading only `GOOGLE_GENAI_USE_VERTEXAI` was a
+    correctness bug, not a naming nit. With `GOOGLE_GENAI_USE_ENTERPRISE=true` set, Modelpin
+    took its API-key branch while the SDK - reading the env itself on an unpinned `vertexai=` -
+    built a VERTEX client underneath: `base_url=https://aiplatform.googleapis.com/`,
+    `api_version=v1beta1`, and an AI Studio key posted to Vertex. Modelpin would have believed
+    it was on one backend while running on the other.
+    """
+    for name in _VERTEX_ENVS:
+        raw = os.environ.get(name)
+        if raw is not None and raw.strip():
+            return _truthy(raw)
+    return False
+
+
 def build_google_client(api_key_envs: tuple[str, ...] = _API_KEY_ENVS) -> Any:
     """Construct a real Gemini client. Two BACKENDS, both the end user's own credentials.
 
@@ -73,17 +97,31 @@ def build_google_client(api_key_envs: tuple[str, ...] = _API_KEY_ENVS) -> Any:
     """
     genai = _import_genai()
 
-    if _truthy(os.environ.get("GOOGLE_GENAI_USE_VERTEXAI", "")):
+    if _vertex_selected():
         project = os.environ.get("GOOGLE_CLOUD_PROJECT", "").strip()
         if not project:
             raise ProviderError(
-                "GOOGLE_GENAI_USE_VERTEXAI is set but GOOGLE_CLOUD_PROJECT is empty. Vertex "
-                "bills a specific project — export it and retry, e.g. "
+                f"{_VERTEX_ENVS[1]} (or {_VERTEX_ENVS[0]}) is set but GOOGLE_CLOUD_PROJECT is "
+                "empty. Vertex bills a specific project — export it and retry, e.g. "
                 "GOOGLE_CLOUD_PROJECT=my-project."
             )
-        # us-central1 carries the broadest model coverage; override for data residency.
-        location = os.environ.get("GOOGLE_CLOUD_LOCATION", "").strip() or "us-central1"
+        # `global` is BOTH the SDK's own default and the only location that serves the CURRENT
+        # models. [M] provider-sdk-verifier 2026-08-25, free `count_tokens` against a real
+        # project: every `gemini-3.x` id 404s on `us-central1` and is served on `global`; only
+        # the legacy 2.5 family works regionally. Modelpin exists to test NEW models, so a
+        # regional default would have made the backend unable to reach the models that matter.
+        # Override for data residency - `global` routes dynamically and guarantees no
+        # processing region.
+        location = os.environ.get("GOOGLE_CLOUD_LOCATION", "").strip() or "global"
         try:
+            import google.auth  # hard dependency of google-genai; kept lazy inside the branch
+
+            # [M] Constructing a Vertex client proves NOTHING about credentials: the SDK only
+            # calls `load_auth` when `project` is absent, and we require it, so ADC is deferred
+            # to the first REQUEST. Without this line `preflight()` passes and the run dies
+            # mid-replay with a raw `DefaultCredentialsError` - after the user has been told
+            # what the run will cost.
+            google.auth.default(scopes=["https://www.googleapis.com/auth/cloud-platform"])
             return genai.Client(vertexai=True, project=project, location=location)
         except Exception as exc:  # noqa: BLE001 - SDK raises several unrelated types here
             raise ProviderError(
@@ -98,9 +136,13 @@ def build_google_client(api_key_envs: tuple[str, ...] = _API_KEY_ENVS) -> Any:
         raise ProviderError(
             f"{api_key_envs[0]} is not set. Modelpin uses YOUR own API key "
             "(cost + provider ToS) — export it and retry. To bill Google Cloud instead of an "
-            "API key, set GOOGLE_GENAI_USE_VERTEXAI=true and GOOGLE_CLOUD_PROJECT."
+            "API key, set GOOGLE_GENAI_USE_VERTEXAI=true (or GOOGLE_GENAI_USE_ENTERPRISE=true) "
+            "and GOOGLE_CLOUD_PROJECT."
         )
-    return genai.Client(api_key=api_key)
+    # `vertexai=False` is NOT redundant. [M] Left unpinned, the SDK re-reads the environment and
+    # silently builds a VERTEX client here when GOOGLE_GENAI_USE_ENTERPRISE is set - posting this
+    # AI Studio key to aiplatform.googleapis.com. Pin the backend the branch decided on.
+    return genai.Client(api_key=api_key, vertexai=False)
 
 
 def _explain_api_error(exc: Exception, model_id: str) -> str:

@@ -264,6 +264,12 @@ def spy_genai(monkeypatch):
         "GOOGLE_CLOUD_LOCATION",
     ):
         monkeypatch.delenv(var, raising=False)
+    # [M] MUST be mocked here, not per-test: `build_google_client` now resolves ADC eagerly,
+    # so an unmocked Vertex test calls the REAL `google.auth.default()`. That passes on a
+    # developer machine that happens to be logged in and fails on any CI runner - and it
+    # probes the GCE metadata server, which ADR-0006 forbids the suite from doing. Tests that
+    # want the failure path override this.
+    monkeypatch.setattr("google.auth.default", lambda **_: ("fake-credentials", "fake-project"))
     return spy
 
 
@@ -273,8 +279,7 @@ def test_the_api_key_path_is_still_the_default(spy_genai, monkeypatch):
     from modelpin.providers.google import build_google_client
 
     build_google_client()
-    assert spy_genai.calls == [{"api_key": "AIzaTESTKEY"}], spy_genai.calls
-    assert "vertexai" not in spy_genai.calls[0]
+    assert spy_genai.calls == [{"api_key": "AIzaTESTKEY", "vertexai": False}], spy_genai.calls
 
 
 def test_vertex_is_selected_by_the_sdks_own_env_var(spy_genai, monkeypatch):
@@ -286,7 +291,7 @@ def test_vertex_is_selected_by_the_sdks_own_env_var(spy_genai, monkeypatch):
 
     build_google_client()
     assert spy_genai.calls == [
-        {"vertexai": True, "project": "proj-123", "location": "us-central1"}
+        {"vertexai": True, "project": "proj-123", "location": "global"}
     ], spy_genai.calls
 
 
@@ -324,7 +329,10 @@ def test_a_falsey_switch_leaves_the_api_key_path_alone(spy_genai, monkeypatch, v
     from modelpin.providers.google import build_google_client
 
     build_google_client()
-    assert spy_genai.calls == [{"api_key": "AIzaTESTKEY"}], (value, spy_genai.calls)
+    assert spy_genai.calls == [{"api_key": "AIzaTESTKEY", "vertexai": False}], (
+        value,
+        spy_genai.calls,
+    )
 
 
 def test_vertex_without_a_project_names_the_missing_variable(spy_genai, monkeypatch):
@@ -360,13 +368,26 @@ def test_the_no_key_error_points_at_the_backend_that_bills_cloud_credit(spy_gena
 
 def test_a_vertex_client_failure_is_wrapped_and_names_ADC(monkeypatch):
     """The failure mode a user WILL hit: Vertex selected, but `gcloud auth
-    application-default login` never run. The message must not read as a missing API key."""
+    application-default login` never run. The message must not read as a missing API key.
+
+    [M] provider-sdk-verifier 2026-08-25: the FIRST version of this test was a guard that
+    asserted nothing real. It raised from `Client()`, and the SDK does not fail there - it
+    only calls `load_auth` when `project` is ABSENT, and this code path requires `project`,
+    so ADC is deferred to the first REQUEST. `preflight()` therefore passed with no
+    credentials at all and the run died mid-replay on a raw `DefaultCredentialsError`, after
+    the user had already been quoted a cost. `build_google_client` now resolves ADC eagerly;
+    this test raises from THAT call, which is where the real failure lives.
+    """
 
     class _Boom:
         def Client(self, **_):  # noqa: N802
-            raise RuntimeError("could not find default credentials for project sekret-proj")
+            raise AssertionError("must fail on credentials before a client is ever built")
+
+    def _no_adc(**_):
+        raise RuntimeError("could not find default credentials for project sekret-proj")
 
     monkeypatch.setattr("modelpin.providers.google._import_genai", lambda: _Boom())
+    monkeypatch.setattr("google.auth.default", _no_adc)
     monkeypatch.setenv("GOOGLE_GENAI_USE_VERTEXAI", "true")
     monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "sekret-proj")
     from modelpin.providers.google import build_google_client
@@ -377,3 +398,76 @@ def test_a_vertex_client_failure_is_wrapped_and_names_ADC(monkeypatch):
     assert "application-default login" in msg, msg
     assert "NOT an API key" in msg, msg
     assert "aiplatform.googleapis.com" in msg, msg
+
+
+def test_credentials_are_resolved_before_a_client_exists(monkeypatch):
+    """[M] The non-negotiable: preflight must fail BEFORE any token is spent. Ordering is the
+    assertion - a client built first would defer the credential check to the first paid call."""
+    order = []
+
+    class _Spy:
+        def Client(self, **kwargs):  # noqa: N802
+            order.append("client")
+            return SimpleNamespace(**kwargs)
+
+    monkeypatch.setattr("modelpin.providers.google._import_genai", lambda: _Spy())
+    monkeypatch.setattr("google.auth.default", lambda **_: order.append("adc") or ("cred", "p"))
+    monkeypatch.setenv("GOOGLE_GENAI_USE_VERTEXAI", "true")
+    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "p")
+    from modelpin.providers.google import build_google_client
+
+    build_google_client()
+    assert order == ["adc", "client"], order
+
+
+def test_the_default_location_serves_current_models_not_just_legacy_ones(spy_genai, monkeypatch):
+    """[M] provider-sdk-verifier 2026-08-25, free `count_tokens` against a real project:
+
+        us-central1  gemini-2.5-flash  SERVED     global  gemini-2.5-flash  SERVED
+        us-central1  gemini-3.5-flash  404        global  gemini-3.5-flash  SERVED
+
+    Every `gemini-3.x` id 404s regionally. The first version of this backend defaulted to
+    `us-central1` with a comment claiming it "carries the broadest model coverage" - exactly
+    inverted. On a tool whose PURPOSE is testing new models, a default that cannot reach any
+    current-generation model is the worst available failure. `global` is also the SDK's own
+    default, so this stops overriding the SDK with something worse.
+    """
+    monkeypatch.setenv("GOOGLE_GENAI_USE_VERTEXAI", "true")
+    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "p")
+    monkeypatch.setattr("google.auth.default", lambda **_: ("cred", "p"))
+    from modelpin.providers.google import build_google_client
+
+    build_google_client()
+    assert spy_genai.calls[0]["location"] == "global", spy_genai.calls
+    assert (
+        spy_genai.calls[0]["location"] != "us-central1"
+    ), "a regional default cannot serve any Gemini 3.x model"
+
+
+def test_the_enterprise_env_var_selects_vertex_too(spy_genai, monkeypatch):
+    """[M] `GOOGLE_GENAI_USE_ENTERPRISE` is the SDK's CURRENT name and it WINS over
+    `GOOGLE_GENAI_USE_VERTEXAI` (google-genai 2.19.0, `_api_client.py:650-676`), which the
+    installed docstring calls "legacy". Reading only the legacy name meant Modelpin took its
+    API-key branch while the SDK built a Vertex client underneath it."""
+    monkeypatch.setenv("GOOGLE_GENAI_USE_ENTERPRISE", "true")
+    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "p")
+    monkeypatch.setattr("google.auth.default", lambda **_: ("cred", "p"))
+    from modelpin.providers.google import build_google_client
+
+    build_google_client()
+    assert spy_genai.calls[0].get("vertexai") is True, spy_genai.calls
+
+
+def test_the_api_key_path_pins_the_backend_against_the_sdks_own_env_reading(spy_genai, monkeypatch):
+    """[M] THE silent-divergence guard. With `GOOGLE_GENAI_USE_ENTERPRISE=true` and an unpinned
+    `vertexai=`, the real SDK builds `vertexai=True`, `base_url=https://aiplatform.googleapis.com/`
+    under what Modelpin believes is its AI Studio branch - posting an AI Studio key to Vertex.
+    Verified directly against the installed SDK, then pinned here."""
+    monkeypatch.setenv("GOOGLE_GENAI_USE_ENTERPRISE", "false")
+    monkeypatch.setenv("GEMINI_API_KEY", "AIzaTESTKEY")
+    from modelpin.providers.google import build_google_client
+
+    build_google_client()
+    assert (
+        spy_genai.calls[0].get("vertexai") is False
+    ), f"the API-key path left the backend for the SDK to re-decide: {spy_genai.calls}"

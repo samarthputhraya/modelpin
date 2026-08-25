@@ -337,16 +337,23 @@ no key at all:
 
 ```bash
 gcloud auth application-default login          # once
-export GOOGLE_GENAI_USE_VERTEXAI=true
+export GOOGLE_GENAI_USE_VERTEXAI=true          # or GOOGLE_GENAI_USE_ENTERPRISE=true
 export GOOGLE_CLOUD_PROJECT=your-project-id
-export GOOGLE_CLOUD_LOCATION=us-central1       # optional; this is the default
-modelpin check --to gemini-2.5-flash --provider google
+modelpin check --to gemini-3.5-flash --provider google
 ```
 
-The variable names are the Google GenAI SDK's own, so nothing here is Modelpin-specific. The
-API-key path stays the default and is unchanged. The two doors do not offer the same catalogue:
-`[M]` `gemini-2.5-flash` currently returns *"no longer available to new users"* on AI Studio while
-still serving on Vertex — which is the sort of divergence Modelpin exists to notice.
+The variable names are the Google GenAI SDK's own. The API-key path stays the default and is
+unchanged.
+
+**Leave `GOOGLE_CLOUD_LOCATION` unset unless you need data residency.** It defaults to `global`,
+which is both the SDK's own default and the only location that serves current models: `[M]` every
+`gemini-3.x` id returns **404 on regional endpoints** such as `us-central1`, where only the legacy
+2.5 family is available. Setting a region keeps processing in that jurisdiction, at the cost of
+the newer models — `global` routes dynamically and makes no residency guarantee.
+
+The two doors do not offer the same catalogue: `[M]` `gemini-2.5-flash` currently returns
+*"no longer available to new users"* on AI Studio while still serving on Vertex — which is the
+sort of divergence Modelpin exists to notice.
 
 ---
 
@@ -420,7 +427,7 @@ trials" claim is withdrawn — those 8 could not have fired, so the honest score
 GitHub Action; the public-report engine (`mp report`) + the open suite (in this repo, not
 in the wheel); the
 [Drift Map #1](docs/reports/modelpin-drift-map-1.md) published across 5 real migration pairs;
-`pip install "modelpin[providers]"`; **378 tests passing**, `ruff` + `black` clean. The Anthropic
+`pip install "modelpin[providers]"`; **382 tests passing**, `ruff` + `black` clean. The Anthropic
 adapter is still a stub (deferred until a paid key is in play); not yet listed on the GitHub
 Marketplace.
 

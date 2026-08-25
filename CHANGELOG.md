@@ -8,12 +8,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - **The Google adapter can bill Vertex AI instead of an API key.** Set
-  `GOOGLE_GENAI_USE_VERTEXAI=true` and `GOOGLE_CLOUD_PROJECT` (optionally
-  `GOOGLE_CLOUD_LOCATION`, default `us-central1`) and Modelpin authenticates with Application
-  Default Credentials — no key. The variable names are the Google GenAI SDK's own, so a user
-  already running that SDK needs no Modelpin-specific setup. **The API-key path is unchanged and
-  remains the default**, and ADR-0008 still holds either way: Modelpin reads only what you put in
-  your own environment and never hardcodes, stores or ships a credential.
+  `GOOGLE_GENAI_USE_VERTEXAI=true` (or `GOOGLE_GENAI_USE_ENTERPRISE=true`, the SDK's current
+  spelling — both are honoured) and `GOOGLE_CLOUD_PROJECT`, and Modelpin authenticates with
+  Application Default Credentials — no key. **The API-key path is unchanged and remains the
+  default**, and ADR-0008 still holds either way: Modelpin reads only what you put in your own
+  environment and never hardcodes, stores or ships a credential.
+  `GOOGLE_CLOUD_LOCATION` defaults to **`global`** — the SDK's own default, and `[M]` the only
+  location serving current models: every `gemini-3.x` id returns 404 on regional endpoints such
+  as `us-central1`, where only the legacy 2.5 family is available. Set a region only for data
+  residency, which costs you the newer models.
   `[M]` This exists because the two doors are not interchangeable for billing. An AI Studio API
   key bills a **prepaid wallet separate from Google Cloud billing**: with Cloud credit available,
   every current model returned `429 RESOURCE_EXHAUSTED — "Your prepayment credits are depleted"`,
