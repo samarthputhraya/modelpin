@@ -222,6 +222,49 @@ def test_report_md_table_reads_diff_signals():
     assert "dropped a tool call" in md
 
 
+def test_report_md_table_renders_the_argument_sub_signal():
+    """`tool_arg_match` was computed and displayed NOWHERE (MP-112 / ADR-0029 decision 5).
+    An advisory-only signal whose number is invisible is advice the reader cannot audit."""
+    sig = DiffSignals(tool_call_match=0.0, tool_arg_match=0.0)
+    r = DiffResult(
+        scenario_id="s1",
+        from_model="gpt-4o",
+        to_model="gpt-4.1",
+        verdict=DiffVerdict.changed_minor,
+        explanation="tool-call arguments changed: search(dropped limit)",
+        confidence=0.99,
+        signals=sig,
+    )
+    md = render_report_md([r], _meta())
+    assert "Arg match" in md, "the argument sub-signal has no column"
+    assert md.count("| 0.00 | 0.00 |") == 1, "tool match and arg match are not both rendered"
+
+
+def test_report_md_argument_column_is_a_dash_when_the_gate_did_not_run():
+    """`None` means NOT MEASURED (ADR-0018), never 1.0 -- the same distinction the field's own
+    docstring draws. A `1.00` here would be a positive claim of sameness nobody measured."""
+    sig = DiffSignals(tool_call_match=1.0, tool_arg_match=None)
+    r = DiffResult(
+        scenario_id="s1",
+        from_model="gpt-4o",
+        to_model="gpt-4.1",
+        verdict=DiffVerdict.unchanged,
+        explanation="no statistically significant behavior change",
+        confidence=1.0,
+        signals=sig,
+    )
+    md = render_report_md([r], _meta())
+    assert "| 1.00 | — |" in md, md
+
+
+def test_report_methodology_calls_the_argument_signal_advisory():
+    """ADR-0029: the published method must not imply arguments can fail a build."""
+    md = render_report_md([_r("s1", DiffVerdict.unchanged)], _meta())
+    assert "tool-call ARGUMENT match" in md
+    assert "advisory" in md
+    assert "five behavioral signals" in md
+
+
 def test_report_md_semantic_dash_when_judge_off():
     # signals.semantic_score is None when no judge ran -> the cell shows an em dash, not 0%.
     md = render_report_md([_r("s1", DiffVerdict.unchanged)], _meta())

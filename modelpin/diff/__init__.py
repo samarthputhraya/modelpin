@@ -104,6 +104,12 @@ MIN_TOOL_TVD = 0.5
 #: [M] The equality is exact for every disjoint shape through N=21; at N=22 a genuinely
 #: disjoint pool scores 0.9999999999999999 and the gate silently does NOT fire (0 of 199,836
 #: non-disjoint pools ever reached 1.0, so the drift is one-directional and false-NEGATIVE).
+#:
+#: THIS FLOOR IS UNCALIBRATED, so the signal it gates is ADVISORY: it escalates only to
+#: `changed_minor` and can never fail a build on its own (ADR-0029, and the verdict block
+#: below). Do NOT read the pricing above as a licence to promote it, and do NOT tune
+#: `DEFAULT_RUNS` against it -- the cost is non-monotone in N and `arg_*` is the fitted-on
+#: set (ADR-0025).
 MIN_TOOL_ARG_TVD = 1.0
 #: Ignore refusal-rate rises smaller than this even if "significant" (one run in three).
 MIN_REFUSAL_DELTA = 0.34
@@ -384,16 +390,6 @@ def diff_scenario(
                 f"tool-call trajectory now violates the '{mode}' relation vs baseline "
                 f"{list(modal_sequence(baseline_traces, mode))}"
             )
-    if arg_regressed:
-        verdict = DiffVerdict.regression
-        hard_pvalues.append(arg_p)
-        reasons.append(
-            "tool-call arguments changed: "
-            + describe_argument_change(
-                modal_arg_sequence(baseline_traces, mode),
-                modal_arg_sequence(candidate_traces, mode),
-            )
-        )
     if refusal_regressed:
         verdict = DiffVerdict.regression
         hard_pvalues.append(refusal_p)
@@ -401,6 +397,29 @@ def diff_scenario(
             f"refusal rate {refusal_rate(baseline_traces):.0%} -> {refusal_rate(candidate_traces):.0%}"
         )
     minor_pvalues: list[float] = []
+    if arg_regressed:
+        # ADVISORY, not CI-failing (ADR-0029). `MIN_TOOL_ARG_TVD` has no labelled calibration
+        # set behind it -- it is a guess, exactly as `MIN_SEMANTIC_DELTA` was before `37b63a1`,
+        # and this is that commit's patch shape run in reverse. [M] Uncapped, the gate fails a
+        # stranger's build ALONE: same model both sides, identical tool names, one optional
+        # field jittering -> `regression` @ 0.992 at the shipped `runs: 5`, where `main`
+        # @ `13a715c` reads `unchanged` @ 1.0. Priced at up to 4.18% of scored cells.
+        #
+        # PROMOTE to a hard regression only on a labelled argument set under
+        # `examples/calibration/` (behaviour change vs provider jitter), scored under ADR-0025,
+        # re-priced across every match mode and N=3..6 -- the cost is NON-MONOTONE in N, so no
+        # `runs` value buys this down and `runs` must NOT be tuned here. See ADR-0029 for the
+        # falsifiable promotion condition. Tracked as MP-54.
+        if verdict != DiffVerdict.regression:
+            verdict = DiffVerdict.changed_minor
+        minor_pvalues.append(arg_p)
+        reasons.append(
+            "tool-call arguments changed: "
+            + describe_argument_change(
+                modal_arg_sequence(baseline_traces, mode),
+                modal_arg_sequence(candidate_traces, mode),
+            )
+        )
     if fmt_drift:
         if verdict != DiffVerdict.regression:
             verdict = DiffVerdict.changed_minor

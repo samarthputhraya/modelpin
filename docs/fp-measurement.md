@@ -205,6 +205,13 @@ role; roles are declared in [`examples/roles.json`](../examples/roles.json) and 
   does not block MP-04: `MIN_TOOL_ARG_TVD = 1.0` on that branch is a structural rule derived
   from exhaustive relabelings under a constructed null, with no scenario set involved, at the
   ceiling of its scale. A labelled fit set is needed only if a measured run says 1.0 must move.
+  `[M] 2026-08-26` **A measured run did say so, and the answer was a cap, not a fit.** Priced
+  offline, the gate adds up to **4.18% of scored trials** against 0/0 before it existed, so it
+  now escalates only to `changed_minor` and can never fail a build alone (**ADR-0029**). The
+  fitting ban above is therefore load-bearing in both directions: it is also why the floor was
+  *not* tuned, and why `runs` was not tuned either — the cost is non-monotone in N, so no
+  default is safe, and `arg_*` is the fitted-on set. Promotion needs the labelled set this
+  bullet forbids building here.
 - **`[M]` This set cannot establish a low false-positive rate, whatever it returns — and the
   likeliest outcome is that it measures nothing at all.** Seven scenarios give a one-sided 95%
   upper bound of **34.8%** (`upper_bound_95(0, 7)`), but that is the *ceiling*, assuming all

@@ -293,9 +293,12 @@ def _report_methodology(meta: ReportMeta) -> list[str]:
         f"Each scenario is replayed {meta.runs} times on **both** models using the caller's "
         "own API key. A verdict comes from the *distribution* of runs, not a single sample: "
         f"a two-sample permutation test (p ≤ {meta.diff_thresholds['alpha']}) gated by a "
-        "minimum effect size. We compare four behavioral signals — tool-call trajectory match "
-        f"({meta.match_mode}), refusal-rate change, output-format / assertion drift, and (when "
-        "a judge runs) calibrated LLM-as-judge semantic equivalence. The north-star is a low "
+        "minimum effect size. We compare five behavioral signals — tool-call trajectory match "
+        f"({meta.match_mode}), tool-call ARGUMENT match, refusal-rate change, output-format / "
+        "assertion drift, and (when a judge runs) calibrated LLM-as-judge semantic "
+        "equivalence. The argument signal is **advisory**: its effect-size floor is not yet "
+        "calibrated on a labelled set, so it can raise a scenario to *minor* but never to a "
+        "build-failing *regression* (ADR-0029). The north-star is a low "
         "false-positive rate: a flagged regression should be a real, repeated change, not model "
         "nondeterminism. Full method: `docs/fp-measurement.md`.",
     ]
@@ -311,16 +314,17 @@ def _report_table(results: list[DiffResult]) -> list[str]:
     lines = [
         "## Per-scenario results",
         "",
-        "| Scenario | Verdict | Tool match | Refusal Δ | Semantic | Latency Δ (ms) | "
-        "Token Δ | Confidence | What we observed |",
-        "|---|---|---|---|---|---|---|---|---|",
+        "| Scenario | Verdict | Tool match | Arg match | Refusal Δ | Semantic | "
+        "Latency Δ (ms) | Token Δ | Confidence | What we observed |",
+        "|---|---|---|---|---|---|---|---|---|---|",
     ]
     for r in regs + unmeasured + minors + unchanged:
         s = r.signals
         semantic = "—" if s.semantic_score is None else format(s.semantic_score, ".0%")
         lines.append(
             f"| {_cell(r.scenario_id)} | {_MD_MARK[r.verdict]} {r.verdict.value} "
-            f"| {_fmt(s.tool_call_match, '.2f')} | {_fmt(s.refusal_delta, '+.2f')} "
+            f"| {_fmt(s.tool_call_match, '.2f')} | {_fmt(s.tool_arg_match, '.2f')} "
+            f"| {_fmt(s.refusal_delta, '+.2f')} "
             f"| {semantic} | {_fmt(s.latency_delta_ms, '+.0f')} "
             f"| {_fmt(s.token_delta, '+d')} | {format(r.confidence, '.2f')} "
             f"| {_cell(r.explanation)} |"

@@ -254,6 +254,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   both used the same `--runs`. A single odd run is still noise. `DiffSignals` gains
   `tool_arg_match`, where `null` means the argument comparison did not run — which is not
   the same as `1.0`.
+  **The signal ships ADVISORY.** It raises a scenario to `changed_minor` and can never reach a
+  build-failing `regression` on its own, because its effect-size floor `MIN_TOOL_ARG_TVD` has
+  no labelled calibration set behind it — the same cap the semantic judge shipped under until
+  `37b63a1` calibrated it. `[M]` Uncapped, the gate failed a build with the **same model on
+  both sides**: identical tool names, identical output text, no refusal, one optional argument
+  field present on every baseline run and absent on every candidate run returned `regression`
+  at confidence 0.992 at the shipped `runs: 5`, where 0.1.2 returned `unchanged` at 1.0.
+  `[M]` Nothing is withheld by the cap — `action.yml` posts the PR comment regardless of
+  verdict, and a minor still gets a report header, a section and a "Pin to … until resolved"
+  line; only the red X is lost. `[M]` It also moves no published figure, because
+  `scripts/fp_measurement.py` already scores `changed_minor` as a false positive. The
+  falsifiable condition for promoting it later is in **ADR-0029**; `runs` is explicitly not a
+  knob for this, as the cost is non-monotone in N.
+  `tool_arg_match` is rendered as an **Arg match** column in the Report's per-scenario table,
+  where `—` means the comparison did not run.
 - **`insufficient_evidence` verdict, and exit code 3.** A scenario where **at least half**
   of one side's runs recorded no behaviour — no output, no tool call, no refusal — now
   abstains instead of reporting `unchanged`. Below that threshold (e.g. 2 of 5) the run

@@ -16,6 +16,11 @@ as a parsed dict whose key order is whatever the model emitted (`openai.py:150` 
 so any encoding that is not order-insensitive turns provider jitter into a false positive --
 the one thing this engine must never do. They pass today only because arguments are ignored
 entirely; they must still pass afterwards.
+
+The gate ships ADVISORY (ADR-0029): `MIN_TOOL_ARG_TVD` has no labelled calibration set, so an
+argument change escalates to `changed_minor` and NEVER to a build-failing `regression` on its
+own. That is why the assertions below read `changed_minor` -- a weaker claim than the first
+draft of this file made, so the cap itself is pinned separately under "the advisory cap".
 """
 
 from __future__ import annotations
@@ -48,7 +53,7 @@ def test_a_hundredfold_argument_change_is_not_unchanged():
     r = diff_scenario(
         "refund", "old", "new", _runs("old", {"amount": 49.99}), _runs("new", {"amount": 4999.00})
     )
-    assert r.verdict == DiffVerdict.regression, (
+    assert r.verdict == DiffVerdict.changed_minor, (
         f"a 100x refund amount reported {r.verdict.value} @ {r.confidence} "
         f"(tool_call_match={r.signals.tool_call_match})"
     )
@@ -75,7 +80,7 @@ def test_a_changed_argument_is_caught_in_every_match_mode():
             _runs("new", {"amount": 4999.00}),
             mode=mode,
         )
-        assert r.verdict == DiffVerdict.regression, f"mode={mode} reported {r.verdict.value}"
+        assert r.verdict == DiffVerdict.changed_minor, f"mode={mode} reported {r.verdict.value}"
 
 
 def test_a_new_argument_key_is_a_behavior_change():
@@ -87,7 +92,7 @@ def test_a_new_argument_key_is_a_behavior_change():
         _runs("old", {"amount": 49.99, "dry_run": True}),
         _runs("new", {"amount": 49.99}),
     )
-    assert r.verdict == DiffVerdict.regression
+    assert r.verdict == DiffVerdict.changed_minor
 
 
 # --- the false-positive ceiling: these must pass BEFORE and AFTER the fix ----------------
@@ -149,3 +154,111 @@ def test_no_other_signal_sees_an_argument_only_change():
     assert r.signals.semantic_score == 1.0
     assert r.signals.refusal_delta == 0.0
     assert r.signals.format_valid is True
+
+
+# --- the advisory cap: ADR-0029 -----------------------------------------------------------
+#
+# The three headline assertions above were WEAKENED from `regression` to `changed_minor` when
+# the gate was capped. A weakened assertion cannot notice the cap being lifted again by
+# accident, so the cap gets its own tripwires -- these are the tests that fail if someone
+# promotes the argument signal without the labelled calibration set ADR-0029 requires.
+
+
+def _jitter(model: str, n: int, *, with_optional: bool) -> list[Trace]:
+    """The MP-112 shape: one OPTIONAL field, present on every run or absent on every run.
+
+    This is provider jitter on a small repertoire, not a behavior change -- and it is the
+    input that made the uncapped gate fail a build with the SAME model on both sides.
+    """
+    args = {"q": "shoes", "limit": 10} if with_optional else {"q": "shoes"}
+    return _runs(model, args, n=n, tool="search")
+
+
+def test_the_argument_gate_alone_never_reaches_a_regression():
+    """The cap, stated directly: at no N and in no match mode may arguments fail a build."""
+    for mode in ("strict", "unordered", "subset", "superset"):
+        for n in range(2, 9):
+            r = diff_scenario(
+                "search",
+                "old",
+                "new",
+                _jitter("old", n, with_optional=True),
+                _jitter("new", n, with_optional=False),
+                mode=mode,
+            )
+            assert r.verdict != DiffVerdict.regression, (
+                f"mode={mode} runs={n} reached {r.verdict.value} @ {r.confidence} on an "
+                f"argument-only change -- ADR-0029 caps this signal at changed_minor"
+            )
+
+
+def test_the_same_model_on_both_sides_does_not_fail_a_build_on_argument_jitter():
+    """[M] MP-112, reproduced 2026-08-26 on `4ab2665`: this returned `regression` @ 0.992 at
+    the shipped `runs: 5`, where `main` @ `13a715c` returned `unchanged` @ 1.0. Same model,
+    identical tool names, identical output text, no refusal -- only one optional field."""
+    r = diff_scenario(
+        "search",
+        "gpt-4.1-mini",
+        "gpt-4.1-mini",
+        _jitter("gpt-4.1-mini", RUNS, with_optional=True),
+        _jitter("gpt-4.1-mini", RUNS, with_optional=False),
+    )
+    assert r.verdict == DiffVerdict.changed_minor
+    assert r.verdict != DiffVerdict.regression, "a same-model comparison fails a stranger's CI"
+
+
+def test_an_argument_flag_takes_its_confidence_from_the_minor_pool():
+    """The cap is not cosmetic: `arg_p` must move out of `hard_pvalues` into `minor_pvalues`,
+    or a later hard signal would inherit the argument p-value as its confidence."""
+    r = diff_scenario(
+        "refund",
+        "old",
+        "new",
+        _runs("old", {"amount": 49.99}),
+        _runs("new", {"amount": 4999.00}),
+    )
+    assert r.verdict == DiffVerdict.changed_minor
+    # 5v5 fully disjoint -> p = 2/C(10,5) = 2/252; confidence is 1 - p.
+    assert r.confidence == round(1.0 - 2 / 252, 3)
+
+
+def test_arguments_never_downgrade_a_real_regression():
+    """`if verdict != regression` -- a hard signal that already fired must survive the cap."""
+    base = [
+        Trace(
+            scenario_id="refund",
+            model_id="old",
+            run_idx=i,
+            tool_calls=[ToolCall(name="issue_refund", arguments={"amount": 49.99})],
+            final_output="Refund issued.",
+        )
+        for i in range(RUNS)
+    ]
+    cand = [
+        Trace(
+            scenario_id="refund",
+            model_id="new",
+            run_idx=i,
+            tool_calls=[ToolCall(name="issue_refund", arguments={"amount": 4999.00})],
+            final_output="I cannot help with that.",
+            refused=True,
+        )
+        for i in range(RUNS)
+    ]
+    r = diff_scenario("refund", "old", "new", base, cand)
+    assert r.verdict == DiffVerdict.regression
+    assert "arguments changed" in r.explanation, "the argument reason is still disclosed"
+
+
+def test_the_cap_does_not_flatter_the_published_false_positive_number():
+    """ADR-0029 decision 3. `changed_minor` is already scored `fp`, so capping the gate moves
+    no published figure. If someone ever drops `changed_minor` from `_FLAGGED`, this cap
+    silently becomes a way to make the north-star metric look better -- fail then."""
+    import sys
+    from pathlib import Path
+
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
+    from fp_measurement import _FLAGGED, classify  # type: ignore[import-not-found]
+
+    assert DiffVerdict.changed_minor in _FLAGGED
+    assert classify(DiffVerdict.changed_minor) == "fp"
