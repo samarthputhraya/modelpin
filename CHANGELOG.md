@@ -6,28 +6,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added
-- **The Google adapter can bill Vertex AI instead of an API key.** Set
-  `GOOGLE_GENAI_USE_VERTEXAI=true` (or `GOOGLE_GENAI_USE_ENTERPRISE=true`, the SDK's current
-  spelling — both are honoured) and `GOOGLE_CLOUD_PROJECT`, and Modelpin authenticates with
-  Application Default Credentials — no key. **The API-key path is unchanged and remains the
-  default**, and ADR-0008 still holds either way: Modelpin reads only what you put in your own
-  environment and never hardcodes, stores or ships a credential.
-  `GOOGLE_CLOUD_LOCATION` defaults to **`global`** — the SDK's own default, and `[M]` the only
-  location serving current models: every `gemini-3.x` id returns 404 on regional endpoints such
-  as `us-central1`, where only the legacy 2.5 family is available. Set a region only for data
-  residency, which costs you the newer models.
-  `[M]` This exists because the two doors are not interchangeable for billing. An AI Studio API
-  key bills a **prepaid wallet separate from Google Cloud billing**: with Cloud credit available,
-  every current model returned `429 RESOURCE_EXHAUSTED — "Your prepayment credits are depleted"`,
-  and a freshly created key *in the credited project* was refused identically — prepay is a
-  property of the billing account, not the project, so no new key can reach it. The same project
-  on Vertex answered normally and billed the Cloud credit. `[M]` Vertex also rejects API keys
-  outright (*"API keys are not supported by this API. Expected OAuth2 access token"*), so this
-  could not be done by swapping a key.
-  `[M]` The catalogues differ too: `gemini-2.5-flash` is `404 "no longer available to new users"`
-  on AI Studio and still served on Vertex.
-
 ### Changed (breaking)
 - **`--fixtures` is now required with `--provider fake`.** The fake provider no longer
   fabricates a trace when it has no canned one: it raises `MissingCannedTrace` and the CLI
@@ -232,6 +210,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   collected count and cannot drift again.
 
 ### Added
+- **The Google adapter can bill Vertex AI instead of an API key.** Set
+  `GOOGLE_GENAI_USE_VERTEXAI=true` (or `GOOGLE_GENAI_USE_ENTERPRISE=true`, the SDK's current
+  spelling — both are honoured) and `GOOGLE_CLOUD_PROJECT`, and Modelpin authenticates with
+  Application Default Credentials — no key. **The API-key path is unchanged and remains the
+  default**, and ADR-0008 still holds either way: Modelpin reads only what you put in your own
+  environment and never hardcodes, stores or ships a credential.
+  `GOOGLE_CLOUD_LOCATION` defaults to **`global`** — the SDK's own default, and `[M]` the only
+  location serving current models: every `gemini-3.x` id returns 404 on regional endpoints such
+  as `us-central1`, where only the legacy 2.5 family is available. Set a region only for data
+  residency, which costs you the newer models.
+  `[M]` This exists because the two doors are not interchangeable for billing. An AI Studio API
+  key bills a **prepaid wallet separate from Google Cloud billing**: with Cloud credit available,
+  every current model returned `429 RESOURCE_EXHAUSTED — "Your prepayment credits are depleted"`,
+  and a freshly created key *in the credited project* was refused identically — prepay is a
+  property of the billing account, not the project, so no new key can reach it. The same project
+  on Vertex answered normally and billed the Cloud credit. `[M]` Vertex also rejects API keys
+  outright (*"API keys are not supported by this API. Expected OAuth2 access token"*), so this
+  could not be done by swapping a key.
+  `[M]` The catalogues differ too: `gemini-2.5-flash` is `404 "no longer available to new users"`
+  on AI Studio and still served on Vertex.
 - **`insufficient_evidence` verdict, and exit code 3.** A scenario where **at least half**
   of one side's runs recorded no behaviour — no output, no tool call, no refusal — now
   abstains instead of reporting `unchanged`. Below that threshold (e.g. 2 of 5) the run
