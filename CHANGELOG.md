@@ -261,10 +261,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   both sides**: identical tool names, identical output text, no refusal, one optional argument
   field present on every baseline run and absent on every candidate run returned `regression`
   at confidence 0.992 at the shipped `runs: 5`, where 0.1.2 returned `unchanged` at 1.0.
-  `[M]` Nothing is withheld by the cap — `action.yml` posts the PR comment regardless of
-  verdict, and a minor still gets a report header, a section and a "Pin to … until resolved"
-  line; only the red X is lost. `[M]` It also moves no published figure, because
-  `scripts/fp_measurement.py` already scores `changed_minor` as a false positive. The
+  **State the cost plainly: the headline example above no longer fails a build.** `[M]`
+  `mp check` exits **0** on an argument-only change (`cli.py` gates `exit 1` on `regression`
+  alone), and `action.yml` gates its red X on that exit code — so a 100× refund argument now
+  arrives as a warning a human must read, not as a stopped pipeline. `[M]` Nothing is
+  *withheld*: `action.yml` posts the PR comment regardless of verdict, and a minor still gets a
+  report header, a MINOR CHANGES section and a "Pin to … until resolved" line. `[M]` It also
+  moves no published figure, because `scripts/fp_measurement.py` already scores
+  `changed_minor` as a false positive. The
   falsifiable condition for promoting it later is in **ADR-0029**; `runs` is explicitly not a
   knob for this, as the cost is non-monotone in N.
   `tool_arg_match` is rendered as an **Arg match** column in the Report's per-scenario table,

@@ -403,7 +403,12 @@ def diff_scenario(
         # and this is that commit's patch shape run in reverse. [M] Uncapped, the gate fails a
         # stranger's build ALONE: same model both sides, identical tool names, one optional
         # field jittering -> `regression` @ 0.992 at the shipped `runs: 5`, where `main`
-        # @ `13a715c` reads `unchanged` @ 1.0. Priced at up to 4.18% of scored cells.
+        # @ `13a715c` reads `unchanged` @ 1.0. [M 2026-08-25 @ 0e81392] Priced offline over the
+        # committed repertoires, the worst of 48 cells is 66/1580 = 4.18% of scored trials
+        # (arg_optional_fields, gpt-4.1-mini, --match subset, N=3), 26 cells non-zero over
+        # 0.08%-4.18%, against 0/0 before this signal existed. Method, artifact and the
+        # uncertainty that binds it: docs/fp-measurement.md, "No argument threshold may be
+        # fitted here".
         #
         # PROMOTE to a hard regression only on a labelled argument set under
         # `examples/calibration/` (behaviour change vs provider jitter), scored under ADR-0025,

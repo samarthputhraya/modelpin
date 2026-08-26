@@ -263,9 +263,15 @@ def _report_header(meta: ReportMeta, results: list[DiffResult]) -> list[str]:
 def _report_settings(meta: ReportMeta, n_scenarios: int) -> list[str]:
     """The reproducibility block — a keyed table a reader/provider can re-run from."""
     t = meta.diff_thresholds
+    # `.get`, not `[...]`: a Report rendered from a sidecar written before the argument signal
+    # existed has four keys, and re-rendering it must not raise. A missing floor is omitted,
+    # never defaulted -- a fabricated threshold in the reproducibility block is worse than an
+    # absent one.
+    arg_floor = t.get("min_tool_arg_tvd")
     thresholds = (
         f"α={t['alpha']}, tool-TVD≥{t['min_tool_tvd']}, "
-        f"refusal Δ≥{t['min_refusal_delta']}, semantic Δ≥{t['min_semantic_delta']}"
+        + (f"arg-TVD≥{arg_floor} (advisory), " if arg_floor is not None else "")
+        + f"refusal Δ≥{t['min_refusal_delta']}, semantic Δ≥{t['min_semantic_delta']}"
     )
     return [
         "## Settings (reproducibility)",
@@ -298,7 +304,7 @@ def _report_methodology(meta: ReportMeta) -> list[str]:
         "assertion drift, and (when a judge runs) calibrated LLM-as-judge semantic "
         "equivalence. The argument signal is **advisory**: its effect-size floor is not yet "
         "calibrated on a labelled set, so it can raise a scenario to *minor* but never to a "
-        "build-failing *regression* (ADR-0029). The north-star is a low "
+        "build-failing *regression* — see `docs/fp-measurement.md`. The north-star is a low "
         "false-positive rate: a flagged regression should be a real, repeated change, not model "
         "nondeterminism. Full method: `docs/fp-measurement.md`.",
     ]

@@ -14,9 +14,10 @@ and added a channel this run is not measuring.
 > Every `regression` this document attributes to the argument channel alone now reads
 > `changed_minor` (ADR-0029). **No rate in this document changes**, because
 > `scripts/fp_measurement.py` scores `changed_minor` as a false positive
-> (`_FLAGGED = (regression, changed_minor)`) — the cap was chosen for what it costs the user,
-> a red X on a build that did not break, not for what it costs the metric. Read every
-> `regression` below as "the argument channel flagged"; read no `0%` as having improved.
+> (`_FLAGGED = (regression, changed_minor)`). The cap was chosen for what the UNCAPPED gate
+> cost the user — a red X on a build that did not break — not for what either shape costs the
+> metric, which is nothing. Read every `regression` below as "the argument channel flagged";
+> read no `0%` as having improved.
 
 ## Headline
 

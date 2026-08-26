@@ -91,6 +91,7 @@ them.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import random
 import subprocess
@@ -370,8 +371,13 @@ def main(argv: list[str] | None = None) -> int:
             print(f"   mode={mode}")
             print(f"      {'N':>3} {'split-half (headline)':>22} {'plug-in (contrast)':>20}")
             for n in ns:
-                rng_s = random.Random(a.seed + n + hash(mode) % 1000)
-                rng_p = random.Random(a.seed + 7919 + n + hash(mode) % 1000)
+                # [M] `hash(str)` is salted per PROCESS (PEP 456) unless PYTHONHASHSEED is
+                # pinned, so the recorded `seed` did NOT make this reproducible: two identical
+                # invocations disagreed on every cell. sha256 is stable across processes, so a
+                # published figure from this script is now re-derivable from `seed` alone.
+                mode_salt = int(hashlib.sha256(mode.encode()).hexdigest()[:6], 16) % 1000
+                rng_s = random.Random(a.seed + n + mode_salt)
+                rng_p = random.Random(a.seed + 7919 + n + mode_salt)
                 sh = split_half(rep["_observed"], n, a.reps, rng_s, mode)
                 pi = plug_in(probs, n, a.reps, rng_p, mode)
                 by_n.append({"mode": mode, "n": n, "split_half": sh, "plug_in": pi})

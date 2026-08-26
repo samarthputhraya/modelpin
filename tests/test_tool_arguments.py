@@ -175,7 +175,12 @@ def _jitter(model: str, n: int, *, with_optional: bool) -> list[Trace]:
 
 
 def test_the_argument_gate_alone_never_reaches_a_regression():
-    """The cap, stated directly: at no N and in no match mode may arguments fail a build."""
+    """The cap, stated directly: at no N and in no match mode may arguments fail a build.
+
+    `!= regression` alone would also pass with the gate DEAD -- the failure mode a cap most
+    easily hides -- so the sweep additionally records that the signal still fires somewhere.
+    """
+    fired = 0
     for mode in ("strict", "unordered", "subset", "superset"):
         for n in range(2, 9):
             r = diff_scenario(
@@ -190,6 +195,11 @@ def test_the_argument_gate_alone_never_reaches_a_regression():
                 f"mode={mode} runs={n} reached {r.verdict.value} @ {r.confidence} on an "
                 f"argument-only change -- ADR-0029 caps this signal at changed_minor"
             )
+            fired += r.verdict == DiffVerdict.changed_minor
+    assert fired, (
+        "the argument gate did not fire ANYWHERE in this sweep. A cap that silently became "
+        "a deletion would satisfy the assertion above; this one it does not."
+    )
 
 
 def test_the_same_model_on_both_sides_does_not_fail_a_build_on_argument_jitter():
@@ -262,3 +272,31 @@ def test_the_cap_does_not_flatter_the_published_false_positive_number():
 
     assert DiffVerdict.changed_minor in _FLAGGED
     assert classify(DiffVerdict.changed_minor) == "fp"
+
+
+def test_an_argument_near_miss_lowers_the_unchanged_confidence():
+    """ADR-0001: an `unchanged` verdict's confidence is `min()` over the signals' p-values, so
+    it reads "how close was the nearest miss", not "how sure are we nothing changed".
+
+    `[M] 2026-08-26` Adding the argument channel to that `min()` is user-visible and was
+    shipped with no test: the same input reads `unchanged @ 1.0` on `main` @ `13a715c` and
+    `unchanged @ 0.100` here, because the equivalence modes' p-floor at N=3 is 0.100 -- the
+    gate could not have fired, and 0.100 is exactly that statement. A silent return to 1.0
+    would be a claim of a clean bill of health over a comparison that was never possible.
+    """
+    for mode in ("strict", "unordered"):
+        r = diff_scenario(
+            "search",
+            "old",
+            "new",
+            _jitter("old", 3, with_optional=True),
+            _jitter("new", 3, with_optional=False),
+            mode=mode,
+        )
+        assert r.verdict == DiffVerdict.unchanged, f"{mode}: {r.verdict.value}"
+        assert r.confidence == 0.1, (
+            f"mode={mode} reports unchanged @ {r.confidence}; the argument p-value must reach "
+            f"the ADR-0001 min(). 1.0 here would assert a clean result over a comparison the "
+            f"equivalence modes structurally could not make at N=3."
+        )
+        assert r.signals.tool_arg_match == 0.0, "the payloads really are disjoint"
