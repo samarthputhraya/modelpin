@@ -176,6 +176,19 @@ trips it. Here is the whole decision rule, no hand-waving:
 minimum 2 — a single run can't form a distribution, so `--runs 1` is rejected outright). Baseline
 *and* candidate are both sampled, so the comparison is distribution-vs-distribution.
 
+**N is not a quality dial — below 4 it is an on/off switch.** An exact permutation test over
+`C(2N, N)` relabelings has a hard p-floor, so at low N *no* effect size can reach `p ≤ 0.05`:
+
+| runs/side | smallest p reachable | refusal + format drift | tool-call + argument (`strict`/`unordered`) |
+|---|---|---|---|
+| 2 | 0.167 | **cannot fire** | **cannot fire** |
+| 3 | 0.050 / 0.100 | fires (exactly at the boundary) | **cannot fire** |
+| 4 | 0.014 / 0.029 | fires | fires |
+| 5 (default) | 0.004 / 0.008 | fires | fires |
+
+Modelpin says so **before it spends**, and a run that could not have reported a regression is
+never described as clean: the report reads *"NOT cleared"*, not *"looks safe to adopt"*.
+
 **2. Structural signals** (per run, no network, deterministic):
 - **Tool-call trajectory match** with four modes — `strict | unordered | subset | superset`
   (`--match`) — so you choose how strict "same plan" means for your agent.
@@ -444,8 +457,8 @@ trials" claim is withdrawn — those 8 could not have fired, so the honest score
 GitHub Action; the public-report engine (`mp report`) + the open suite (in this repo, not
 in the wheel); the
 [Drift Map #1](docs/reports/modelpin-drift-map-1.md) published across 5 real migration pairs;
-`pip install "modelpin[providers]"`; `[M]` **466 tests passing** (+3 `xfail` pinning the open
-MP-05 scenario-id collision, so 469 collected), `ruff` + `black` clean. The Anthropic
+`pip install "modelpin[providers]"`; `[M]` **484 tests passing** (+3 `xfail` pinning the open
+MP-05 scenario-id collision, so 487 collected), `ruff` + `black` clean. The Anthropic
 adapter is still a stub (deferred until a paid key is in play); not yet listed on the GitHub
 Marketplace.
 
