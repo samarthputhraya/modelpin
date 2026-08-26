@@ -157,7 +157,11 @@ def min_achievable_pvalue_mean(n_baseline: int, n_candidate: int) -> float:
 def min_achievable_pvalue_distribution(n_baseline: int, n_candidate: int) -> float:
     """The SMALLEST p-value ``permutation_pvalue_distribution`` can return at these run counts.
 
-    Two-sided, so its floor is twice the mean statistic's: the maximally separated labelling
-    and its mirror both tie the observed TVD. See ``min_achievable_pvalue_mean``.
+    Two-sided, so with EQUAL run counts its floor is twice the mean statistic's: the maximally
+    separated labelling and its mirror both tie the observed TVD. With UNEQUAL counts no such
+    mirror exists at the required group sizes and the two floors coincide -- `[M]` at 5 vs 2
+    both are 0.047619, not 0.095238. Trusting the doubled form off the diagonal flips the
+    `> ALPHA` answer at 5v2 and 6v2, which is a regime `modelpin check` reaches whenever a stored
+    baseline holds more runs than `--runs`. See ``min_achievable_pvalue_mean``.
     """
     return permutation_pvalue_distribution(["b"] * n_baseline, ["c"] * n_candidate)

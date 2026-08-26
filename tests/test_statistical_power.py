@@ -63,6 +63,12 @@ def test_the_floors_are_the_exact_combinatorial_minimum():
         total = comb(2 * n, n)
         assert min_achievable_pvalue_mean(n, n) == 1 / total, n
         assert min_achievable_pvalue_distribution(n, n) == 2 / total, n
+    # ...but the 2x relation is DIAGONAL-ONLY. `[M]` With unequal counts no mirror labelling
+    # exists at the required group sizes and the two floors coincide. Restating "twice" in
+    # general `nb, nc` notation -- which an earlier draft of this file and of stats.py both
+    # did -- flips the `> ALPHA` answer at 5v2, a regime a stored baseline reaches routinely.
+    assert min_achievable_pvalue_distribution(5, 2) == 1 / comb(7, 2)
+    assert min_achievable_pvalue_distribution(5, 2) == min_achievable_pvalue_mean(5, 2)
 
 
 def test_no_signal_can_fire_at_two_runs_a_side():
@@ -235,7 +241,12 @@ def test_an_unequal_baseline_and_candidate_are_judged_on_the_pooled_floor(tmp_pa
     incapable and refuse to clear a candidate it genuinely measured."""
     assert min_achievable_pvalue_mean(5, 2) < ALPHA
     chk, report = _demo_check(tmp_path, 2, baseline_runs=5)
-    assert "NOT cleared" not in report, report
+    # `assert "NOT cleared" not in report` was VACUOUS here and is the exact hazard this file
+    # exists to catch: `[M]` the 5v2 demo yields 2 regressions + 1 minor, so the renderer takes
+    # the `if regs or minors:` branch and `_underpowered_clearance` is never called at all.
+    # Assert the affirmative property on a scenario that really is measurable instead.
+    assert "**UNCHANGED (1)** ✅" in report, report
+    assert "OK 1 scenario(s) unchanged" in " ".join(chk.output.split()), chk.output
 
 
 def test_the_written_report_is_valid_json_free_markdown_at_every_run_count(tmp_path):
@@ -244,3 +255,101 @@ def test_the_written_report_is_valid_json_free_markdown_at_every_run_count(tmp_p
         _, report = _demo_check(tmp_path, n)
         assert report.startswith(("🚨", "❔", "⚠️", "✅")), (n, report[:80])
         assert json.dumps(report)  # no lone surrogates / control chars
+
+
+# --- the three claims the first draft of this fix got wrong --------------------------------
+#
+# `[M] 2026-08-26`, all three reproduced by the review gates on the first version of MP-55.
+# They are the same defect class the branch exists to eliminate -- a confident statement that
+# the code does not keep -- committed while fixing it.
+
+
+def _tool_only_sandbox(tmp_path):
+    """The demo trimmed to `refund_request`, whose ONLY difference between the two models is
+    the tool-call trajectory. Its output text is identical, so no one-sided signal can fire
+    and the two-sided distribution floor alone decides whether this run can conclude."""
+    scen = tmp_path / "scen"
+    scen.mkdir()
+    src = Path(SCEN) / "refund_request.json"
+    (scen / "refund_request.json").write_text(src.read_text(encoding="utf-8"), encoding="utf-8")
+    return str(scen)
+
+
+def _check(tmp_path, scen, n, *, baseline_runs=None, mode="strict", tag=""):
+    store = str(tmp_path / f"s{tag}{n}{mode}")
+    common = [
+        "--provider",
+        "fake",
+        "--fixtures",
+        FIXTURES,
+        "--scenarios-dir",
+        scen,
+        "--config",
+        CONFIG,
+        "--store-dir",
+        store,
+    ]
+    base = runner.invoke(
+        app, ["baseline", "--model", DEMO_FROM, *common, "--runs", str(baseline_runs or n)]
+    )
+    assert base.exit_code == 0, base.output
+    chk = runner.invoke(
+        app,
+        ["check", "--to", DEMO_TO, "--from", DEMO_FROM, *common, "--runs", str(n), "--match", mode],
+    )
+    return chk, (Path(store) / "last-report.md").read_text(encoding="utf-8")
+
+
+def test_the_spend_warning_is_priced_on_the_pooled_floor_not_the_candidate_alone(tmp_path):
+    """`[M]` Priced on `(n, n)` this printed "This run cannot report a regression, whatever
+    the models do" over `baseline --runs 5` + `check --runs 2` -- and the same invocation then
+    reported two regressions and exited 1. The real 5v2 floor is 0.047619, BELOW alpha."""
+    assert min_achievable_pvalue_mean(5, 2) < ALPHA < min_achievable_pvalue_mean(2, 2)
+    chk, _ = _demo_check(tmp_path, 2, baseline_runs=5)
+    out = " ".join(chk.output.split())
+    assert "cannot report a regression" not in out, out
+    assert chk.exit_code == 1, out  # and it demonstrably CAN: it reported them
+
+
+def test_the_warning_never_contradicts_a_verdict_in_its_own_output(tmp_path):
+    """`[M]` Under `--match subset --runs 3` the old text said the tool-call signal "cannot
+    reach p <= 0.05" and the very next lines reported a `subset` tool-call regression. The
+    directional modes route the tool and argument signals through the ONE-sided statistic,
+    whose floor at N=3 is exactly ALPHA."""
+    for mode in ("subset", "superset"):
+        chk, _ = _check(tmp_path, SCEN, 3, mode=mode, tag="c")
+        out = " ".join(chk.output.split())
+        if "REGRESSION" in out:
+            assert "cannot reach" not in out, out
+            assert "cannot report a regression" not in out, out
+
+
+def test_a_tool_only_scenario_at_three_runs_is_not_declared_safe_to_adopt(tmp_path):
+    """The narrower trap, and a MORE confident false clearance than the N=2 one this file
+    opens with. `[M]` At 3v3 `strict` the first version of this fix rendered
+    `✅ no behavioral change` / "looks safe to adopt" over `refund_request`, while N=4 on
+    identical fixtures reports the regression. The blind predicate consulted only the
+    one-sided floor; the signal that was dead is gated by the two-sided one."""
+    assert min_achievable_pvalue_distribution(3, 3) > ALPHA
+    scen = _tool_only_sandbox(tmp_path)
+
+    chk3, report3 = _check(tmp_path, scen, 3, tag="t")
+    assert "safe to adopt" not in report3, report3
+    assert "NOT cleared" in report3, report3
+    assert "OK 1 scenario(s) unchanged" not in " ".join(chk3.output.split()), chk3.output
+
+    # Falsifier: at N=4 the very same fixtures must find the regression, or "not cleared"
+    # above would be trivially correct rather than a real rescue.
+    chk4, report4 = _check(tmp_path, scen, 4, tag="t")
+    assert chk4.exit_code == 1, chk4.output
+    assert "tool-call behavior changed" in report4, report4
+
+
+def test_the_directional_modes_are_not_declared_blind_at_three_runs(tmp_path):
+    """The mirror of the test above: `subset`/`superset` reach ALPHA at N=3, so the same
+    scenario must NOT be suppressed there. A blind predicate that ignored `mode` in the other
+    direction would withhold a real clearance."""
+    scen = _tool_only_sandbox(tmp_path)
+    for mode in ("subset", "superset"):
+        _, report = _check(tmp_path, scen, 3, mode=mode, tag="d")
+        assert "could not have reported a regression" not in report, (mode, report)

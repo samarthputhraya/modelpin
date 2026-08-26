@@ -300,8 +300,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   tick, and the footer reads *"is NOT cleared"*. A partially-blind run is reported as
   *partially cleared*, naming how many scenarios were measurable.
   `[M]` The floors are **measured from the shipped permutation functions**, not restated as a
-  formula, so they cannot drift from the test they describe. The README publishes the whole
-  table.
+  formula, so they cannot drift from the test they describe — and they are priced on **both
+  sides and the match mode**, because neither is optional: a baseline recorded at 5 runs and
+  checked at 2 is a 5v2 comparison whose floor is `0.048`, *below* the line, and the
+  directional modes (`subset`/`superset`) route the tool and argument signals through the
+  one-sided statistic, so they reach significance at N=3 where `strict`/`unordered` cannot.
+  `[M]` Getting either wrong produces the same defect this entry describes, pointing the other
+  way: priced on the candidate alone the tool asserted *"this run cannot report a regression,
+  whatever the models do"* in an invocation that then reported two of them and exited 1.
+  The README publishes the whole table.
   **Deliberately unchanged:** `MIN_RUNS`, every effect-size floor, and the exit code — an
   underpowered run still exits **0**. Those are sensitivity surfaces (ADR-0016, ADR-0002) and
   moving one needs its own calibration; this change governs only what the tool *claims*. It
