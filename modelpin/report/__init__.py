@@ -122,6 +122,11 @@ class ChannelCensus:
     tools_declared: bool
     assertions_declared: bool
     judge_enabled: bool
+    #: WHY the judge is off, carried from the caller and never inferred here. The census
+    #: cannot tell "no judge_model in the config" from "disabled because the provider is
+    #: the offline fake", and printing the first when the second is true would put a false
+    #: statement inside the disclosure that exists to be honest.
+    judge_off_reason: str = "no `judge_model` configured"
 
     @property
     def hard_content_channels(self) -> list[str]:
@@ -146,19 +151,30 @@ class ChannelCensus:
         if not self.tools_declared:
             out.append("tool trajectory + arguments (no scenario declares `tools`)")
         if not self.judge_enabled:
-            out.append("semantic judge (no `judge_model` configured)")
+            out.append(f"semantic judge ({self.judge_off_reason})")
         if not self.assertions_declared:
             out.append("text assertions (no scenario declares `assertions`)")
         return out
 
 
-def _census_clearance(census: Optional[ChannelCensus], to_model: str) -> str | None:
+def _census_clearance(
+    census: Optional[ChannelCensus], to_model: str, *, arrow: str = "→"
+) -> str | None:
     """The line that must REPLACE an affirmative clearance when no hard content channel was
-    live, or ``None`` when the census raises no objection."""
+    live, or ``None`` when the census raises no objection.
+
+    ``arrow`` exists because of the module invariant stated at the top of this file: the CLI
+    surface must stay cp1252-encodable, and U+2192 is not. `[M] 2026-08-30` the first cut of
+    MP-138 shipped the arrow into ``render_cli`` and crashed `modelpin check` with a
+    ``UnicodeEncodeError`` on a default Windows console -- ONLY when ``hard_content_channels``
+    was empty, i.e. only in the exact state the feature exists to serve, aborting before
+    ``last-report.md`` was written and exiting 1 like a real regression. The Markdown path is
+    written with ``encoding="utf-8"`` and keeps the arrow to match its sibling lines.
+    """
     if census is None or census.hard_content_channels:
         return None
     return (
-        f"→ This run had NO CI-failing channel able to see a change in what the model says: "
+        f"{arrow} This run had NO CI-failing channel able to see a change in what the model says: "
         f"{'; '.join(census.inert)}. Only refusal could have failed the build, and it only "
         f"fires if the candidate starts declining. A wrong-but-confident answer would have "
         f"passed. `{to_model}` is NOT cleared on content -- add `tools`, a `judge_model`, or "
@@ -332,11 +348,23 @@ def render_pr_comment(
         # MP-138: a second way to be structurally unable to fail. `underpowered` prices RUN
         # COUNT; the census prices CHANNEL AVAILABILITY. Either alone makes an affirmative
         # clearance false, so both must be able to replace it.
-        weak = _underpowered_clearance(underpowered, len(results), to_model) or _census_clearance(
-            census, to_model
-        )
-        lines.append(
-            weak or f"→ No behavioral regressions found; `{to_model}` looks safe to adopt."
+        # They are INDEPENDENT diagnoses -- too few runs, and too few armed channels -- so
+        # they compose. `[M]` An earlier cut short-circuited with `or` and printed only the
+        # first, hiding half the reason a clearance was withheld.
+        weak = [
+            x
+            for x in (
+                _underpowered_clearance(underpowered, len(results), to_model),
+                _census_clearance(census, to_model),
+            )
+            if x
+        ]
+        (
+            lines.extend(weak)
+            if weak
+            else lines.append(
+                f"→ No behavioral regressions found; `{to_model}` looks safe to adopt."
+            )
         )
     # Coverage is disclosed on EVERY verdict, not only clean ones -- a red run whose
     # detectors were half off is just as misread as a green one (ADR-0022's rule, applied
@@ -373,6 +401,12 @@ def render_cli(
             f"[dim](confidence {r.confidence:.2f})[/]"
         )
     if unchanged:
+        # MP-138. Same rule as the Markdown bucket: no green marker over a bucket that could
+        # not have gone red. `[M]` The first cut guarded only the Markdown side, so the CLI --
+        # the surface a first-run user actually reads -- still printed a green OK above a line
+        # saying the model was NOT cleared.
+        inert = census is not None and not census.hard_content_channels
+        ok_mark = "[yellow]OK?[/]" if inert else "[green]OK[/]"
         blind = set(underpowered)
         n_blind = sum(1 for r in unchanged if r.scenario_id in blind)
         if n_blind:
@@ -387,16 +421,17 @@ def render_cli(
             )
             rest = len(unchanged) - n_blind
             if rest:
-                lines.append(f"[green]OK[/] [dim]{rest} scenario(s) unchanged[/]")
+                lines.append(f"{ok_mark} [dim]{rest} scenario(s) unchanged[/]")
         else:
-            lines.append(f"[green]OK[/] [dim]{len(unchanged)} scenario(s) unchanged[/]")
+            lines.append(f"{ok_mark} [dim]{len(unchanged)} scenario(s) unchanged[/]")
     if regs or minors:
         lines.append("")
         lines.append(f"[yellow]-> Pin to[/] [bold]{from_model}[/] until resolved.")
     elif not unmeasured:
         # MP-138. Only reached on an all-clean run: say plainly when nothing could have
         # caught a wrong-but-confident answer, instead of letting silence read as a pass.
-        weak = _census_clearance(census, to_model)
+        # ASCII arrow: this string goes to the console, which may be cp1252.
+        weak = _census_clearance(census, to_model, arrow="->")
         if weak:
             lines.append("")
             lines.append(f"[yellow]{escape(weak)}[/]")

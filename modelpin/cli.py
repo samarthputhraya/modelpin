@@ -656,17 +656,30 @@ def check(
         # the tool and argument signals through the two-sided test, whose floor is higher.
         return mode in EQUIVALENCE_MODES and min_achievable_pvalue_distribution(nb, n) > ALPHA
 
-    underpowered = [s.id for s in scenarios if base.get(s.id) and _blind(s.id)]
+    # The scenarios that actually produced `results` -- a scenario with no stored baseline is
+    # skipped above and never diffed. Both disclosures below must be read off THIS set, or
+    # they describe a run that did not happen.
+    compared = [s for s in scenarios if base.get(s.id)]
+    underpowered = [s.id for s in compared if _blind(s.id)]
 
     # MP-138. `underpowered` above prices RUN COUNT. This prices CHANNEL AVAILABILITY --
     # the other way a run can be structurally unable to fail, and one `_resolve_runs`
     # cannot see because it is not a function of N. Read off the suite and the config,
     # not the traces: a channel the scenarios never armed could not have fired however
     # the models behaved, which is exactly what a clearance must not paper over.
+    #
+    # `[M]` The judge reason is PASSED, not inferred: the offline `fake` provider disables the
+    # judge regardless of config (`_build_judge`), so inferring "no judge_model configured"
+    # from `judge is None` would print a false statement inside the honesty disclosure.
     census = ChannelCensus(
-        tools_declared=any(s.input.get("tools") for s in scenarios),
-        assertions_declared=any(s.assertions is not None for s in scenarios),
+        tools_declared=any(s.input.get("tools") for s in compared),
+        assertions_declared=any(s.assertions is not None for s in compared),
         judge_enabled=judge is not None,
+        judge_off_reason=(
+            "disabled on the offline `fake` provider"
+            if prov == "fake"
+            else "no `judge_model` configured"
+        ),
     )
 
     console.print(render_cli(results, from_model, to, n, underpowered, census))

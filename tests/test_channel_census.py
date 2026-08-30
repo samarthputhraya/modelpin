@@ -210,3 +210,77 @@ def test_a_real_regression_still_leads_with_the_alarm_not_the_census():
     caveat -- the user needs the failure first."""
     md = render_pr_comment([_regression()], "m1", "m2", 5, "groq", (), _DOGFOOD)
     assert md.splitlines()[0].startswith("\U0001f6a8")
+
+
+# ---------------------------------------------------------------------------------------
+# The CLI surface must stay cp1252-encodable. This is the test whose absence let the first
+# cut of MP-138 ship a crash.
+# ---------------------------------------------------------------------------------------
+
+_ALL_CENSUSES = [
+    ChannelCensus(tools_declared=t, assertions_declared=a, judge_enabled=j)
+    for t in (True, False)
+    for a in (True, False)
+    for j in (True, False)
+]
+
+
+def test_the_cli_output_is_cp1252_encodable_for_every_census():
+    """`[M] 2026-08-30` The first cut of MP-138 put U+2192 into `_census_clearance` and routed
+    it to the console. On a default Windows console that raised `UnicodeEncodeError` -- and it
+    fired ONLY when `hard_content_channels` was empty, i.e. only in the exact state the feature
+    exists to serve. It aborted before `last-report.md` was written and exited 1, which the
+    GitHub Action cannot tell from a real regression.
+
+    The module states this invariant at the top of the file and nothing enforced it: a grep for
+    `cp1252` across `tests/` returned nothing. 508 tests were green over the crash because none
+    of them ever ENCODED the string.
+    """
+    for census in _ALL_CENSUSES:
+        for results in ([_unchanged()], [_regression()], [_unchanged(), _regression("s2")]):
+            out = render_cli(results, "m1", "m2", 5, (), census)
+            out.encode("cp1252")  # must not raise
+    # and with the run-count warning also present
+    render_cli([_unchanged("s1")], "m1", "m2", 2, ["s1"], _DOGFOOD).encode("cp1252")
+
+
+def test_the_markdown_keeps_its_arrow():
+    """The fix must not over-correct: the PR comment is written with encoding='utf-8' and its
+    sibling lines all use the arrow, so stripping it there would be a cosmetic regression."""
+    md = render_pr_comment([_unchanged()], "m1", "m2", 5, "groq", (), _DOGFOOD)
+    assert "→ This run had NO CI-failing channel" in md
+
+
+def test_the_cli_bucket_loses_its_green_marker_when_inert():
+    """The Markdown bucket was guarded in the first cut and the CLI one was not -- so the
+    surface a first-run user actually reads still showed a green OK above a NOT-cleared line."""
+    out = render_cli([_unchanged()], "m1", "m2", 5, (), _DOGFOOD)
+    assert "[green]OK[/]" not in out
+    assert "[yellow]OK?[/]" in out
+    assert "[green]OK[/]" in render_cli([_unchanged()], "m1", "m2", 5, (), _ARMED)
+
+
+def test_both_clearances_are_printed_when_both_apply():
+    """Too few runs and too few armed channels are INDEPENDENT diagnoses. An earlier cut joined
+    them with `or` and printed only the first, hiding half the reason a clearance was withheld."""
+    md = render_pr_comment([_unchanged("s1")], "m1", "m2", 2, "groq", ["s1"], _DOGFOOD)
+    assert "could not have reported a regression at all" in md  # the run-count diagnosis
+    assert "NOT cleared on content" in md  # the channel diagnosis
+    assert "looks safe to adopt" not in md
+
+
+def test_the_judge_reason_is_carried_not_inferred():
+    """`ChannelCensus` cannot tell "no judge_model in the config" from "disabled because the
+    provider is the offline fake". Inferring the first would print a false statement inside the
+    disclosure that exists to be honest."""
+    offline = ChannelCensus(
+        tools_declared=False,
+        assertions_declared=True,
+        judge_enabled=False,
+        judge_off_reason="disabled on the offline `fake` provider",
+    )
+    joined = " ".join(offline.inert)
+    assert "disabled on the offline `fake` provider" in joined
+    assert "no `judge_model` configured" not in joined
+    # the default is preserved for the ordinary case
+    assert "no `judge_model` configured" in " ".join(_DOGFOOD.inert)
