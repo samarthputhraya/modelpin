@@ -86,6 +86,95 @@ def _provenance(provider: str | None) -> str:
 #: Deliberately NOT a verdict change and NOT an exit-code change: `MIN_RUNS` and the floors
 #: are sensitivity surfaces (ADR-0016, ADR-0002) and moving them needs its own calibration.
 #: This governs only what the tool CLAIMS.
+# --------------------------------------------------------------------------------------
+# MP-138 — channel availability, the disclosure one level ACROSS from the run-count one.
+#
+# `_resolve_runs` already refuses to let a run that is structurally incapable of reporting a
+# regression pass as a clean bill, and its comment names the defect exactly: "the user is
+# about to pay for a run that is structurally incapable of reporting a regression, and 'less
+# power' does not say that." But it prices ONLY the permutation floor, i.e. RUN COUNT. A
+# suite can clear that floor comfortably and still have most of its detectors switched off
+# for reasons that have nothing to do with N.
+#
+# [M] 2026-08-30, ops/launch/dogfood-kavach.md: a 12-scenario suite at 5v5 (floor 0.003968,
+# far below ALPHA, so `underpowered` was empty) rendered "looks safe to adopt" while the
+# tool-trajectory and tool-argument channels were inert by construction (no scenario declared
+# `tools`, so the model was never OFFERED one) and the semantic judge was off (no
+# `judge_model`). The only hard channel left was refusal, which catches "the model started
+# declining" and nothing else -- so every CONTENT change routed to advisory-only and could
+# not fail CI. Replayed against deliberate garbage, that suite still exited 0.
+#
+# This is the same promise ADR-0022 makes about the project's own numbers -- "a rate quoted
+# without its coverage number is not a result" -- applied to the number we hand the USER.
+# --------------------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class ChannelCensus:
+    """Which verdict-bearing channels could fire at all on this suite.
+
+    Availability here is STRUCTURAL (did the suite/config give the channel anything to work
+    with), never statistical -- run-count power is `underpowered`'s job and the two are
+    deliberately separate. A channel counts as live if it *could* have fired, even when it
+    observed nothing; a true negative is a measurement, an inert channel is not.
+    """
+
+    tools_declared: bool
+    assertions_declared: bool
+    judge_enabled: bool
+
+    @property
+    def hard_content_channels(self) -> list[str]:
+        """CI-FAILING channels that respond to a change in what the model SAYS or DOES.
+
+        Refusal is excluded on purpose: it is always live (computed from the model's own
+        text, needing no scenario declaration) but only fires when the candidate starts
+        DECLINING. A model that answers confidently and answers wrong never touches it, so
+        counting it here would restore exactly the false comfort this census exists to remove.
+        """
+        live = []
+        if self.tools_declared:
+            live.append("tool trajectory")
+        if self.judge_enabled:
+            live.append("semantic judge")
+        return live
+
+    @property
+    def inert(self) -> list[str]:
+        """Channels that could not have fired, with the reason, for disclosure."""
+        out = []
+        if not self.tools_declared:
+            out.append("tool trajectory + arguments (no scenario declares `tools`)")
+        if not self.judge_enabled:
+            out.append("semantic judge (no `judge_model` configured)")
+        if not self.assertions_declared:
+            out.append("text assertions (no scenario declares `assertions`)")
+        return out
+
+
+def _census_clearance(census: Optional[ChannelCensus], to_model: str) -> str | None:
+    """The line that must REPLACE an affirmative clearance when no hard content channel was
+    live, or ``None`` when the census raises no objection."""
+    if census is None or census.hard_content_channels:
+        return None
+    return (
+        f"→ This run had NO CI-failing channel able to see a change in what the model says: "
+        f"{'; '.join(census.inert)}. Only refusal could have failed the build, and it only "
+        f"fires if the candidate starts declining. A wrong-but-confident answer would have "
+        f"passed. `{to_model}` is NOT cleared on content -- add `tools`, a `judge_model`, or "
+        f"read the advisory findings above."
+    )
+
+
+def _census_note(census: Optional[ChannelCensus]) -> str | None:
+    """One-line coverage disclosure printed beside every verdict, clean or not."""
+    if census is None:
+        return None
+    if not census.inert:
+        return None
+    return "coverage: inert this run -- " + "; ".join(census.inert)
+
+
 _UNDERPOWERED_NOTE = (
     "{n} of {total} scenario(s) were compared at a run count where no signal could reach "
     "statistical significance, so this run could not have reported a regression in them"
@@ -140,6 +229,7 @@ def render_pr_comment(
     runs: int,
     provider: str | None = None,
     underpowered: Sequence[str] = (),
+    census: Optional[ChannelCensus] = None,
 ) -> str:
     """The Markdown PR comment (spec section 7). The header reflects the actual outcome —
     only a real regression leads with 🚨, so an all-unchanged result reads calm/green and
@@ -157,8 +247,14 @@ def render_pr_comment(
         header = f"❔ **Modelpin: could not measure — `{from_model}` → `{to_model}`**"
     elif minors:
         header = f"⚠️ **Modelpin: minor changes — `{from_model}` → `{to_model}`**"
-    elif underpowered and len(underpowered) >= len(results):
+    elif (underpowered and len(underpowered) >= len(results)) or (
+        census is not None and not census.hard_content_channels
+    ):
         # A green check over a run that could not have gone red is the worst header we ship.
+        # MP-138 adds the second way to get there: every CI-failing channel that reads the
+        # model's CONTENT was inert, so no answer -- however wrong -- could have gone red.
+        # MP-116 fixed this exact contradiction for blind runs; shipping it again for inert
+        # channels would be the same defect with a new cause.
         header = f"❔ **Modelpin: could not measure — `{from_model}` → `{to_model}`**"
     elif underpowered:
         # [M] MP-116: this branch did not exist, so PARTIAL blindness fell through to the
@@ -212,6 +308,11 @@ def render_pr_comment(
             f"reported a regression at this run count: "
             + _named_blind(blind_ids, lambda sid: f"`{_md_inline(sid)}`")
         )
+    elif census is not None and not census.hard_content_channels:
+        lines.append(
+            f"**UNCHANGED ({len(unchanged)})** ✔ — on the channels that were live; "
+            "no CI-failing channel could see a content change"
+        )
     else:
         lines.append(f"**UNCHANGED ({len(unchanged)})** ✅")
     lines.append("")
@@ -228,10 +329,22 @@ def render_pr_comment(
         # MP-55, the same rule one level up: an `unchanged` verdict from a comparison whose
         # permutation test could not have returned p <= ALPHA is the ABSENCE of a
         # measurement, not a measurement of sameness. "Safe to adopt" must not render over it.
-        weak = _underpowered_clearance(underpowered, len(results), to_model)
+        # MP-138: a second way to be structurally unable to fail. `underpowered` prices RUN
+        # COUNT; the census prices CHANNEL AVAILABILITY. Either alone makes an affirmative
+        # clearance false, so both must be able to replace it.
+        weak = _underpowered_clearance(underpowered, len(results), to_model) or _census_clearance(
+            census, to_model
+        )
         lines.append(
             weak or f"→ No behavioral regressions found; `{to_model}` looks safe to adopt."
         )
+    # Coverage is disclosed on EVERY verdict, not only clean ones -- a red run whose
+    # detectors were half off is just as misread as a green one (ADR-0022's rule, applied
+    # to the number handed to the USER rather than to our own).
+    note = _census_note(census)
+    if note:
+        lines.append("")
+        lines.append(f"<sub>{_md_inline(note)}</sub>")
     return "\n".join(lines)
 
 
@@ -241,6 +354,7 @@ def render_cli(
     to_model: str,
     runs: int,
     underpowered: Sequence[str] = (),
+    census: Optional[ChannelCensus] = None,
 ) -> str:
     """The CLI summary — ASCII text + rich color markup (safe on any console)."""
     _b = _bucket(results)
@@ -279,6 +393,17 @@ def render_cli(
     if regs or minors:
         lines.append("")
         lines.append(f"[yellow]-> Pin to[/] [bold]{from_model}[/] until resolved.")
+    elif not unmeasured:
+        # MP-138. Only reached on an all-clean run: say plainly when nothing could have
+        # caught a wrong-but-confident answer, instead of letting silence read as a pass.
+        weak = _census_clearance(census, to_model)
+        if weak:
+            lines.append("")
+            lines.append(f"[yellow]{escape(weak)}[/]")
+    note = _census_note(census)
+    if note:
+        lines.append("")
+        lines.append(f"[dim]{escape(note)}[/]")
     return "\n".join(lines)
 
 

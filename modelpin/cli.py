@@ -52,6 +52,7 @@ from modelpin.providers import ProviderAdapter, ProviderError, get_adapter
 from modelpin.providers.fake import FakeProvider
 from modelpin.replay import replay
 from modelpin.report import (
+    ChannelCensus,
     ReportMeta,
     render_cli,
     render_pr_comment,
@@ -657,7 +658,18 @@ def check(
 
     underpowered = [s.id for s in scenarios if base.get(s.id) and _blind(s.id)]
 
-    console.print(render_cli(results, from_model, to, n, underpowered))
+    # MP-138. `underpowered` above prices RUN COUNT. This prices CHANNEL AVAILABILITY --
+    # the other way a run can be structurally unable to fail, and one `_resolve_runs`
+    # cannot see because it is not a function of N. Read off the suite and the config,
+    # not the traces: a channel the scenarios never armed could not have fired however
+    # the models behaved, which is exactly what a clearance must not paper over.
+    census = ChannelCensus(
+        tools_declared=any(s.input.get("tools") for s in scenarios),
+        assertions_declared=any(s.assertions is not None for s in scenarios),
+        judge_enabled=judge is not None,
+    )
+
+    console.print(render_cli(results, from_model, to, n, underpowered, census))
 
     # Decide the CI exit code BEFORE any side effect, so a report-write failure
     # can never silently mask a real regression.
@@ -668,7 +680,7 @@ def check(
     try:
         report_path.parent.mkdir(parents=True, exist_ok=True)
         report_path.write_text(
-            render_pr_comment(results, from_model, to, n, prov, underpowered),
+            render_pr_comment(results, from_model, to, n, prov, underpowered, census),
             encoding="utf-8",
         )
         console.print(f"\n[dim]PR-style Markdown report written to {report_path}[/]")
