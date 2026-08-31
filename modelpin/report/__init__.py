@@ -247,6 +247,12 @@ def _census_note(census: Optional[ChannelCensus]) -> str | None:
     return "coverage: " + "; ".join(parts)
 
 
+#: The `fmt_drift` reason string, matched so the CLI can say when a finding it just
+#: reported is one it is deliberately not failing on (ADR-0032). Kept beside the
+#: renderer rather than imported from `diff/`, which is FROZEN under ADR-0030.
+_ASSERTION_REASON = "violates the scenario's text assertions"
+
+
 _UNDERPOWERED_NOTE = (
     "{n} of {total} scenario(s) were compared at a run count where no signal could reach "
     "statistical significance, so this run could not have reported a regression in them"
@@ -501,6 +507,20 @@ def render_cli(
     if regs or minors:
         lines.append("")
         lines.append(f"[yellow]-> Pin to[/] [bold]{from_model}[/] until resolved.")
+        # ADR-0032, the interim it requires. `[M] 2026-08-29` the dogfood flagged 6 of 12
+        # scenarios at confidence 1.00 -- all 6 confirmed TRUE positives by an independent
+        # oracle -- printed "Pin to ... until resolved", and EXITED 0, because a violated
+        # text assertion caps at `changed_minor`. Reporting a finding and then silently
+        # declining to act on it is the same defect MP-138/MP-140/MP-141 removed elsewhere:
+        # a result whose own limits are unstated. Renderer-only, so the ADR-0030 freeze does
+        # not block it; the promotion ADR-0032 gates does touch `diff/` and is frozen.
+        if not regs and any(_ASSERTION_REASON in r.explanation for r in minors):
+            lines.append(
+                "[yellow]note:[/] [dim]a scenario violated an assertion you wrote, and this "
+                "run still exits 0. Text assertions are advisory today because the "
+                "comparison is byte-exact, so a capitalisation change would fail your build "
+                "-- see ADR-0032. Treat the finding above as real.[/]"
+            )
     elif not unmeasured:
         # MP-138. Only reached on an all-clean run: say plainly when nothing could have
         # caught a wrong-but-confident answer, instead of letting silence read as a pass.
