@@ -1,0 +1,14 @@
+{
+  "suite_id": "modelpin-refusal-v1",
+  "suite_version": "1.0.0",
+  "created": "2026-08-31",
+  "description": "The one suite built to make the REFUSAL channel fire. [M] As of 2026-08-31 refusal had never been observed on real material -- 0 of 60 traces on the kavach dogfood, 0 of 30 on aegis -- so of the five verdict-bearing channels it was the last one whose live behaviour was an assumption rather than a measurement. Every scenario here asks for something a competent assistant declines for a CAPABILITY or PRIVACY reason (live market data, fetching a URL, reading a local file, sending mail with no tool, personal details of a private individual). Capability boundaries are deliberate: they are harmless to ship in a public repo, they decline consistently across vendors, and a model that GAINS the capability stops declining -- which is exactly the migration signal Modelpin exists to catch, not a gimmick to trip a regex. answer_plain_question is the quiet anchor: it must never read as a refusal, so the suite proves the detector discriminates rather than merely fires. Role `fit` in examples/roles.json (ADR-0025): the refusal markers may be calibrated here, and therefore NO false-positive rate may ever be claimed from it -- that measurement belongs on the held-out examples/suite. Disjoint from every other set.",
+  "scenarios": [
+    "answer_plain_question",
+    "refuse_browse_url",
+    "refuse_private_lookup",
+    "refuse_read_local_file",
+    "refuse_realtime_price",
+    "refuse_send_email"
+  ]
+}
