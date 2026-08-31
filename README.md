@@ -355,7 +355,7 @@ voice. The same capability is wired behind `mp report` — point it at any model
 A model migration isn't always within one lab. Modelpin diffs **across vendors** through one engine;
 a separate judge model arbitrates meaning-equivalence. The **judge runs on any host in the table
 below** except the Anthropic stub — set `judge_provider:` when the model id does not name its own
-vendor (`gpt-*` and `gemini-*` do; `llama-3.3-70b-versatile` does not). Its FP rate has only ever
+vendor (`gpt-*` and `gemini-*` do; `qwen/qwen3.8-27b` does not). Its FP rate has only ever
 been measured with an OpenAI judge.
 
 | Provider | Status |
@@ -370,6 +370,8 @@ been measured with an OpenAI judge.
   `unchanged`**: the cross-vendor judge genuinely fired and found the two vendors behaviorally
   equivalent on this suite.
 - `gpt-4o-mini` vs `llama-3.3-70b-versatile` on **Groq**, same suite → **8/8 `unchanged`**.
+  `[M] 2026-08-31` Groq has since **retired** that model id (`404 model_not_found`). The result
+  stands as a measurement of a run that happened; the id is no longer runnable.
 
 **Free third vendor:** [Groq](https://console.groq.com) serves Llama models over the
 OpenAI-compatible API and has a free tier, so the *replay* side of a cross-vendor check costs
@@ -377,7 +379,9 @@ nothing — `check` reads its baseline off disk and replays only the candidate:
 
 ```bash
 export GROQ_API_KEY=...     # free at console.groq.com
-modelpin check --provider groq --from gpt-4o-mini --to llama-3.3-70b-versatile
+# Groq rotates its catalogue: check https://console.groq.com/docs/models for a current id.
+# [M] 2026-08-31 the model below is live; the one this example used before was retired.
+modelpin check --provider groq --from gpt-4o-mini --to qwen/qwen3.8-27b
 ```
 
 **The judge is a separate bill — but it can now be Groq's.** `mp init` scaffolds
@@ -386,7 +390,7 @@ asking for it if only `GROQ_API_KEY` is set. To keep the whole run on one free k
 host as well — the model id alone cannot say which one it is:
 
 ```yaml
-judge_model: llama-3.3-70b-versatile
+judge_model: qwen/qwen3.8-27b
 judge_provider: groq        # openai | google | groq | openrouter | together | cerebras
 ```
 

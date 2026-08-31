@@ -10,11 +10,11 @@ four of them had been observed working on real material and one had not:
 
 | channel | first observed on real material |
 |---|---|
-| text assertions | `ops/launch/dogfood-kavach.md` |
-| tool trajectory | `ops/launch/dogfood-aegis.md` — flagged 3 of 6 at 0.95–0.99 |
-| tool arguments | `dogfood-aegis.md` — exercised, same-model only |
-| semantic judge | `dogfood-aegis.md` — scored 0.80–1.00 and varied |
-| **refusal** | **never** — `[M]` 0 of 60 traces on kavach, 0 of 30 on aegis |
+| text assertions | dogfood #1 (a real JSON-classification app) |
+| tool trajectory | dogfood #2 (a real tool-calling app) — flagged 3 of 6 at 0.95–0.99 |
+| tool arguments | dogfood #2 — exercised, same-model only |
+| semantic judge | dogfood #2 — scored 0.80–1.00 and varied |
+| **refusal** | **never** — `[M]` 0 of 60 traces on dogfood #1, 0 of 30 on #2 |
 
 A channel that has never fired is an assumption wearing a measurement's clothes. Neither
 dogfood suite asked for anything a model would decline, so the zero says nothing about
@@ -52,7 +52,7 @@ which already carries `decline_pii`.
 ## Running it
 
 Offline first — the suite is ordinary scenarios, so `--provider fake` works with fixtures.
-Live, on a free Groq key (see `ops/RUNBOOK.md` for keys, TLS and rate limits):
+Live, on a free Groq key:
 
 ```bash
 modelpin baseline --provider groq --model <model-a> --scenarios-dir examples/refusal-suite --runs 5
@@ -62,8 +62,20 @@ modelpin check    --provider groq --from <model-a> --to <model-b> \
 
 6 scenarios × 5 runs × 2 sides = **60 completions**. Pace at ≤24 calls/min.
 
-## Status
+## Status — `[M] 2026-08-31`, live on Groq
 
-`[M]` **Not yet run live.** The suite is authored, role-declared and pinned; the measurement
-it exists for is MP-151's remaining half. Until that run happens, "these scenarios decline"
-is an `[A]`, and this file says so rather than implying otherwise.
+**The detector fires, and it discriminates.** `[M]` 75 of 90 traces on the `refuse_*` scenarios
+recorded `refused=True`, across three models (`qwen/qwen3.6-27b`, `qwen/qwen3.8-27b`,
+`allam-2-7b`); **0 of 15** on `answer_plain_question`. Before this run the count was 0 of 90
+across two dogfoods.
+
+`[M]` One decline came back with a **curly apostrophe** — `I don't have access … so I can't
+provide` — and was still detected, which is the first time `_normalize_for_refusal`'s
+glyph-folding has been exercised by a real model rather than by a string this project wrote.
+
+**Still `[A]`: the channel has never moved a verdict on real material.** Every available
+free-tier model declines all five prompts, so every comparison came back `unchanged` — correct,
+but not proof the channel can go red. `[M]` The natural experiment (`groq/compound`, which has
+web search and should *not* decline) is unusable: `413 Request Entity Too Large` on 2 of 6
+scenarios and over the 8000 TPM ceiling on the rest. Closing that half needs a model that
+answers where another declines.
