@@ -219,7 +219,8 @@ what fails your CI when a model migration changes your app's behavior.
 | `invoice_parse` | `changed_minor` | `"Total: $5"` -> `"Total: 5"` violates the scenario's `must_contain` assertion, but nothing refused and no tool moved |
 
 A Markdown report lands in `.modelpin/last-report.md` — that is the comment the GitHub
-Action posts on your PR.
+Action posts on your PR. Every run also leaves a dated copy in `.modelpin/runs/`, so the
+evidence for one run survives the next one and can be cited later.
 
 ## Now make it lie to you
 

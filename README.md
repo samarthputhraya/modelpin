@@ -62,7 +62,8 @@ modelpin check --to demo-model-v2 --fixtures traces.json
 You'll get a per-scenario verdict (`unchanged` / `changed_minor` / `regression` /
 `insufficient_evidence` - the last meaning a side recorded nothing to compare), a confidence
 score, a one-line plain-English explanation per scenario, and a Markdown report written to
-`.modelpin/last-report.md`:
+`.modelpin/last-report.md` - plus a dated copy under `.modelpin/runs/` that the next run
+will not overwrite:
 
 | scenario | verdict | why |
 |---|---|---|

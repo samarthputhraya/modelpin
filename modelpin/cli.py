@@ -821,15 +821,28 @@ def check(
     unmeasured = [r for r in results if r.verdict == DiffVerdict.insufficient_evidence]
 
     report_path = Path(store_dir) / "last-report.md"
+    markdown = render_pr_comment(results, from_model, to, n, prov, underpowered, census, rejected)
     try:
         report_path.parent.mkdir(parents=True, exist_ok=True)
-        report_path.write_text(
-            render_pr_comment(results, from_model, to, n, prov, underpowered, census, rejected),
-            encoding="utf-8",
-        )
+        report_path.write_text(markdown, encoding="utf-8")
         console.print(f"\n[dim]PR-style Markdown report written to {report_path}[/]")
     except OSError as exc:
         console.print(f"[yellow]warning:[/] could not write report to {report_path}: {exc}")
+    else:
+        # MP-150. `last-report.md` is a MOVING target by design -- `action.yml:135` publishes
+        # that exact path and both CI workflows glob for it -- so it stays, and the durable
+        # copy is written beside it. `[M]` Before this, every `check` deleted the evidence of
+        # the previous one: the two dogfood runs in `ops/launch/` had to be transcribed by
+        # hand because the file they came from was already gone. A finding you cannot cite
+        # later is a finding you did not really record.
+        # Written SECOND on purpose: if only one write can succeed it must be the one CI
+        # reads, so an archive failure is a warning and never costs the stable report.
+        try:
+            archived = _archive_path(Path(store_dir), from_model, to)
+            archived.write_text(markdown, encoding="utf-8")
+            console.print(f"[dim]archived for citation: {archived}[/]")
+        except OSError as exc:
+            console.print(f"[yellow]warning:[/] could not archive the report: {exc}")
 
     if skipped:
         console.print(
@@ -850,6 +863,32 @@ def check(
         # either -- Click already uses 2 for a usage error, so `mp check --bogus` exits 2.
         # The Action gates on `code != '0'`, so CI still fails without any workflow change.
         raise typer.Exit(code=EXIT_UNMEASURED)
+
+
+#: Per-run `check` reports, kept beside the stable `last-report.md` so a run's evidence
+#: survives the next run (MP-150). Under the store dir, not the working tree: it holds
+#: measurements about a model, which is what `.modelpin/` already is.
+REPORT_ARCHIVE_DIRNAME = "runs"
+
+
+def _archive_path(store: Path, from_model: str, to_model: str, stamp: str | None = None) -> Path:
+    """A collision-free, citable path for THIS run's report.
+
+    The name has to be readable back to a run -- both model ids and the UTC instant -- or it
+    is a file, not a citation. Timestamps are one second wide and CI runs are fast, so a
+    same-second collision disambiguates with a counter rather than clobbering: overwriting is
+    the entire defect this function exists to remove.
+    """
+    stamp = stamp or datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    directory = store / REPORT_ARCHIVE_DIRNAME
+    directory.mkdir(parents=True, exist_ok=True)
+    stem = f"check-{slug(from_model)}-to-{slug(to_model)}-{stamp}"
+    candidate = directory / f"{stem}.md"
+    n = 2
+    while candidate.exists():
+        candidate = directory / f"{stem}-{n}.md"
+        n += 1
+    return candidate
 
 
 #: Where rendered Modelpin Reports (.md + .json) are written by default.
