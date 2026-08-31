@@ -72,4 +72,6 @@ def get_adapter(provider: str) -> ProviderAdapter:
     if provider in OPENAI_COMPATIBLE_PROVIDERS:
         return build_openai_compatible_adapter(provider)
 
-    raise ValueError(f"Unknown provider: {provider} (try: {provider_help()})")
+    # NOT `(try: {provider_help()})`: `provider_help` ends in its own parenthetical, so
+    # wrapping it closed with `run.))`. `[M]` first-run-auditor, 2026-08-31.
+    raise ValueError(f"Unknown provider: {provider}. Valid: {provider_help()}")

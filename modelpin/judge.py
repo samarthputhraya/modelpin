@@ -125,6 +125,17 @@ class OpenAIJudge:
         }
         if not _is_reasoning_model(self._model):
             request["temperature"] = 0  # deterministic judging
+            # OpenRouter ROUTES. `[S] 2026-08-31` openrouter.ai/docs/features/provider-routing:
+            # "providers that don't support all the LLM parameters specified in your request
+            # can still receive the request, but will ignore unknown parameters." So
+            # `temperature: 0` returns HTTP 200 and is silently dropped upstream, and the
+            # judge quietly becomes non-deterministic -- no error to catch, and
+            # `docs/fp-measurement.md`'s calibration, which is measured at temperature 0,
+            # stops describing the run. `require_parameters` narrows routing to upstreams that
+            # honour it. The cost is fewer (possibly pricier) providers; for a judge whose
+            # entire value is determinism that is the right side to fail on.
+            if self._base_url and "openrouter.ai" in self._base_url:
+                request["extra_body"] = {"provider": {"require_parameters": True}}
         try:
             response = client.chat.completions.create(**request)
         except ProviderError:
@@ -133,7 +144,14 @@ class OpenAIJudge:
             raise ProviderError(
                 # MP-136: the judge spends the user's key too, so a rejected key here
                 # must name the variable to fix exactly as the replay path does.
-                _explain_api_error(exc, self._model, api_key_env=self._api_key_env)
+                #
+                # `self.label` is passed, and that is not cosmetic. `[M]` provider-sdk-verifier
+                # 2026-08-31: omitting it defaulted to "OpenAI", so a rejected GROQ key read
+                # "OpenAI call for model 'llama-3.3-70b-versatile' failed ... Modelpin read
+                # your key from GROQ_API_KEY - check that variable holds a current OpenAI key."
+                # The message named the right variable and the wrong vendor in one sentence --
+                # MP-136's exact defect, reintroduced on the host path MP-143 opened.
+                _explain_api_error(exc, self._model, self.label, api_key_env=self._api_key_env)
             ) from exc
         choices = getattr(response, "choices", None) or []
         content = (choices[0].message.content or "") if choices else ""

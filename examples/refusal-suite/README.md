@@ -33,9 +33,22 @@ prompts):
 - they are **harmless to ship** in a public repository;
 - they decline **consistently across vendors**, which is what "reliably declines on both
   sides" requires;
-- and a model that *gains* the capability **stops declining** — so the refusal rate moving
-  is a real migration signal, not a regex being tickled. A browsing-enabled successor to a
-  non-browsing model is exactly the kind of change this product exists to catch.
+- and a model that *gains* the capability **stops declining**, which is the migration this
+  suite is about.
+
+**`[M]` The refusal channel cannot currently see that drop, and this suite was authored on the
+assumption that it could.** The channel is **one-sided by design** (ADR-0002):
+`diff/__init__.py` gates on `refusal_delta >= MIN_REFUSAL_DELTA`, and
+`stats.permutation_pvalue_mean` returns `p = 1.0` for any non-positive change. `[M]`
+Reproduced on the engine: baseline 5/5 refused → candidate 0/5 refused, no tools, no
+assertions, no judge — exactly this suite's live configuration — returns **`unchanged`,
+confidence 1.00, `refusal_delta = -1.0`**.
+
+So a model that *starts* refusing is a regression; a model that *stops* is not. On these
+scenarios the drop is visible only to a configured **semantic judge**. That one-sidedness is a
+deliberate false-positive protection and is not being "fixed" on this evidence — the honest
+consequence is that this suite measures the **detector**, and the direction it was designed
+around needs a judge on the run.
 
 `answer_plain_question` is the **quiet anchor**: an ordinary question that must never read as
 a refusal. Without it the suite could only show that the detector *fires*, not that it
@@ -64,18 +77,33 @@ modelpin check    --provider groq --from <model-a> --to <model-b> \
 
 ## Status — `[M] 2026-08-31`, live on Groq
 
-**The detector fires, and it discriminates.** `[M]` 75 of 90 traces on the `refuse_*` scenarios
-recorded `refused=True`, across three models (`qwen/qwen3.6-27b`, `qwen/qwen3.8-27b`,
-`allam-2-7b`); **0 of 15** on `answer_plain_question`. Before this run the count was 0 of 90
+> **These numbers are not reproducible from this repository.** The run's raw traces and reports
+> were not published; the working notes are maintainer-local. Treat every `[M]` below as a
+> maintainer assertion, not as evidence you can recount — unlike the Drift Map, whose raw data
+> is in `docs/reports/data/`. Publishing the traces is open work.
+
+**The detector fires, and it discriminates.** `[M]` **50 of 50** `refuse_*` traces on
+`qwen/qwen3.6-27b` and `qwen/qwen3.8-27b` recorded `refused=True`, counted directly off the
+stored baselines; **0 of 15** on `answer_plain_question`. Before this run the count was 0 of 90
 across two dogfoods.
+
+`[A]` **A third model, `allam-2-7b`, contributed 25 more `refuse_*` traces that are NOT
+counted.** Its check returned `unchanged`, and an earlier draft of this file read that as proof
+it had also refused — *"a 5/5 → 0/5 flip could not have produced `unchanged` at N=5"*. That
+inference is **backwards**: per the one-sided note above, a 5/5 → 0/5 flip produces exactly
+`unchanged`, at confidence 1.00. So `unchanged` cannot distinguish "it also refused" from "it
+stopped refusing", and those 25 traces are unmeasured. The honest count is **50 of 50 measured,
+25 unmeasured**.
 
 `[M]` One decline came back with a **curly apostrophe** — `I don't have access … so I can't
 provide` — and was still detected, which is the first time `_normalize_for_refusal`'s
 glyph-folding has been exercised by a real model rather than by a string this project wrote.
 
-**Still `[A]`: the channel has never moved a verdict on real material.** Every available
-free-tier model declines all five prompts, so every comparison came back `unchanged` — correct,
-but not proof the channel can go red. `[M]` The natural experiment (`groq/compound`, which has
-web search and should *not* decline) is unusable: `413 Request Entity Too Large` on 2 of 6
-scenarios and over the 8000 TPM ceiling on the rest. Closing that half needs a model that
-answers where another declines.
+**Still `[A]`: the channel has never moved a verdict on real material.** Every comparison came
+back `unchanged`. `[M]` The natural experiment (`groq/compound`, which has web search and
+should *not* decline) is unusable: `413 Request Entity Too Large` on 2 of 6 scenarios and over
+the 8000 TPM ceiling on the rest.
+
+And note what the one-sidedness costs here: closing that half needs a model that answers where
+another declines **and a judge configured on the run**. A model that stops refusing does not
+move the refusal channel in either direction, so on a judge-less run there is nothing to see.

@@ -1,8 +1,11 @@
 """Tests for the public report-suite helpers (content hash + manifest) and the
 integrity of the committed suite. All offline — no providers, no network."""
 
+import json
 import re
 from pathlib import Path
+
+import pytest
 
 from modelpin.models import Scenario
 from modelpin.report.suite import (
@@ -105,12 +108,27 @@ def test_report_suite_ids_disjoint_from_held_out_suite():
     assert report_ids.isdisjoint(held_out_ids)
 
 
-def test_public_suite_carries_no_comparative_quality_words():
+def _declared_suite_dirs() -> list[Path]:
+    """Every scenario directory `examples/roles.json` declares.
+
+    `[M]` claims-auditor 2026-08-31: the guard below was pinned to `REPORT_SUITE` alone, so
+    `examples/refusal-suite/` landed entirely outside it. Deriving the list from `roles.json`
+    -- which a new suite must join anyway, or `test_suite_roles.py` fails -- means the next
+    suite is covered on the day it lands rather than the day someone remembers.
+    """
+    roles = json.loads((REPO / "examples" / "roles.json").read_text(encoding="utf-8"))
+    return sorted({REPO / "examples" / entry["path"] for entry in roles["sets"]})
+
+
+@pytest.mark.parametrize("suite_dir", _declared_suite_dirs(), ids=lambda p: p.name)
+def test_no_shipped_suite_carries_comparative_quality_words(suite_dir):
     """Framing guardrail (spec section 9): scenario ids, names, and tool names flow into the
     published report (via the diff explanation), so the suite itself must be free of
     comparative-quality words — else a tool named e.g. `upgrade_plan` would smuggle a banned
     word into a report about named commercial models."""
-    for s in load_scenarios(REPORT_SUITE):
+    scenarios = load_scenarios(suite_dir)
+    assert scenarios, f"{suite_dir.name} declares a role but loads no scenarios"
+    for s in scenarios:
         tokens = [s.id, s.name, *(s.input.get("tools") or [])]
         for token in tokens:
             hit = _BANNED.search(str(token))

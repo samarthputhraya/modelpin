@@ -62,8 +62,8 @@ modelpin check --to demo-model-v2 --fixtures traces.json
 You'll get a per-scenario verdict (`unchanged` / `changed_minor` / `regression` /
 `insufficient_evidence` - the last meaning a side recorded nothing to compare), a confidence
 score, a one-line plain-English explanation per scenario, and a Markdown report written to
-`.modelpin/last-report.md` - plus a dated copy under `.modelpin/runs/` that the next run
-will not overwrite:
+`.modelpin/last-report.md` - **that exact file is what the GitHub Action posts** - plus a
+dated copy under `.modelpin/runs/` that the next run will not overwrite, for citing later:
 
 | scenario | verdict | why |
 |---|---|---|
@@ -322,7 +322,10 @@ So the floor rests on **one** labeled condition — and that one scores 0/1, not
   true detection, `1 - upper_bound_95(2, 6)` in
   [`scripts/fp_measurement.py`](https://github.com/samarthputhraya/modelpin/blob/main/scripts/fp_measurement.py). It can *miss* a subtle real
   change (again, the safe direction);
-- every FP number above was measured with an **OpenAI judge**. The judge now RUNS on OpenAI, Gemini and the four OpenAI-compatible hosts (MP-143), but no FP rate has been measured on any of them - a judge that works is not a judge that is calibrated;
+- every FP number above was measured with an **OpenAI judge**, and only with one. Since
+  2026-08-31 the judge also RUNS on Gemini and the four OpenAI-compatible hosts (MP-143),
+  but no FP rate has been measured on any of those **five** - a judge that works is not a
+  judge that is calibrated;
 - the structural floors are **not** FP-validated: `[M]` the held-out run contributed 0 scored
   trials, and at the shipped `runs: 5` the floors are **inert** anyway — the p-value gate is
   strictly stricter, and they first bind at N=9 (semantic), N=11 (tool), N=12 (refusal).
@@ -390,12 +393,14 @@ asking for it if only `GROQ_API_KEY` is set. To keep the whole run on one free k
 host as well — the model id alone cannot say which one it is:
 
 ```yaml
-judge_model: qwen/qwen3.8-27b
-judge_provider: groq        # openai | google | groq | openrouter | together | cerebras
+judge_model: qwen/qwen3.6-27b   # NOT the model under test -- see the caveat below
+judge_provider: groq            # openai | google | groq | openrouter | together | cerebras
 ```
 
-Bear the caveat above in mind: the FP rate was measured with an OpenAI judge and has not
-been re-measured on any other host. For a run with no judge at all, remove `judge_model:`
+**Do not name the model you are checking as the judge.** `mp check` warns when you do, and a
+model arbitrating its own output is not an independent reading -- it is the same circularity
+that demoted the self-judge calibration run above. Bear the other caveat in mind too: the FP
+rate was measured with an OpenAI judge and has not been re-measured on any other host. For a run with no judge at all, remove `judge_model:`
 from `modelpin.yaml`; the diff then stays purely structural, exactly as in
 [How the behavioral diff works](#how-the-behavioral-diff-works-the-moat). The judge cost is
 disclosed before it is spent, in the `+ up to N judge calls` clause of the pre-spend line.
@@ -517,8 +522,8 @@ trials" claim is withdrawn — those 8 could not have fired, so the honest score
 GitHub Action; the public-report engine (`mp report`) + the open suite (in this repo, not
 in the wheel); the
 [Drift Map #1](https://github.com/samarthputhraya/modelpin/blob/main/docs/reports/modelpin-drift-map-1.md) published across 5 real migration pairs;
-`pip install "modelpin[providers]"`; `[M]` **702 tests passing** (+3 `xfail` pinning the open
-MP-05 scenario-id collision, so 705 collected), `ruff` + `black` clean. The Anthropic
+`pip install "modelpin[providers]"`; `[M]` **711 tests passing** (+3 `xfail` pinning the open
+MP-05 scenario-id collision, so 714 collected), `ruff` + `black` clean. The Anthropic
 adapter is still a stub (deferred until a paid key is in play); not yet listed on the GitHub
 Marketplace.
 

@@ -76,6 +76,11 @@ def test_the_unknown_provider_error_uses_the_same_marked_list():
     message = str(exc.value)
     assert "anthropic" in message
     assert "NOT yet implemented" in message
+    # `[M]` first-run-auditor, 2026-08-31: this read `... run.))`. `provider_help()` ends in
+    # its own parenthetical, and the caller wrapped it in another. A message a confused user
+    # is reading is the worst place for a stray bracket.
+    assert message.count("(") == message.count(")"), message
+    assert "))" not in message, message
 
 
 def _action_provider_description() -> str:

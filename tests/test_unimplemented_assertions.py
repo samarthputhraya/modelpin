@@ -140,15 +140,41 @@ def test_a_users_stale_field_is_named_not_silently_dropped(tmp_path):
     out = " ".join(_check(tmp_path, '{"expected_tool_calls":["lookup_order"]}').output.split())
     assert "does not check" in out, out
     assert "expected_tool_calls" in out, out
-    assert "must_contain" in out, out  # the remedy names the fields that ARE compared
+
+
+def test_a_removed_field_gets_the_remedy_that_is_TRUE_FOR_IT(tmp_path):
+    """`[M]` first-run-auditor, 2026-08-31: the first cut answered every unknown key with the
+    same sentence -- "this version checks `must_contain` / `must_not_contain`". That is right
+    for a typo and WRONG here: there is no text assertion that expresses "expect this tool
+    call", so the reader either guesses the field is safe to delete or wastes time trying to
+    shoehorn a tool check into a string match. The remedy that is actually true -- the
+    tool-trajectory channel already does this work -- existed only in the CHANGELOG and never
+    reached the console."""
+    out = " ".join(_check(tmp_path, '{"expected_tool_calls":["lookup_order"]}').output.split())
+    assert "trajectory" in out.lower(), out
+    assert "Delete the field" in out, out
+    # ...and it must NOT be answered with the text-assertion line, which is the whole defect.
+    assert "this version checks" not in out, out
 
 
 def test_a_typo_is_caught_by_the_same_advisory(tmp_path):
     """A capability the field-based check never had: reading the RAW keys means a
     `must_containn` typo -- which no version of Modelpin has ever checked -- is now named
-    rather than silently ignored."""
+    rather than silently ignored. THIS is the case the generic remedy is right for."""
     out = " ".join(_check(tmp_path, '{"must_containn":["hi"]}').output.split())
     assert "must_containn" in out, out
+    assert "this version checks" in out, out
+    assert "trajectory" not in out.lower(), out  # not a removed field; no removal remedy
+
+
+def test_both_kinds_in_one_suite_each_get_their_own_remedy(tmp_path):
+    """They compose. A file can carry a stale field AND a typo, and answering only one of
+    them is the same class of half-disclosure the rest of this codebase keeps closing."""
+    out = " ".join(
+        _check(tmp_path, '{"expected_tool_calls":["x"],"must_containn":["hi"]}').output.split()
+    )
+    assert "trajectory" in out.lower(), out
+    assert "this version checks" in out, out
 
 
 def test_a_suite_using_only_live_assertions_gets_no_note(tmp_path):

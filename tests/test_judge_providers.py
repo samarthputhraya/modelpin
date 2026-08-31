@@ -137,6 +137,62 @@ def test_a_groq_judge_reaches_groq_and_returns_a_verdict():
     assert "the total is $500" in client.request["messages"][1]["content"]
 
 
+def test_a_non_openai_judge_error_names_the_RIGHT_vendor():
+    """`[M]` provider-sdk-verifier, 2026-08-31: MP-136's exact defect, reintroduced on the
+    host path MP-143 opened. `_explain_api_error`'s `label` defaults to "OpenAI", so a
+    rejected Groq key read *"OpenAI call for model 'llama-3.3-70b-versatile' failed ...
+    Modelpin read your key from GROQ_API_KEY - check that variable holds a current OpenAI
+    key."* -- the right variable and the wrong vendor in one sentence."""
+
+    # The real SDK class NAME is what `_API_ERROR_HINTS` keys on, so the fake has to carry
+    # it -- a RuntimeError with the words in its text falls to the generic branch and would
+    # test nothing about the rejected-key path.
+    class AuthenticationError(Exception):
+        pass
+
+    class Boom(FakeOpenAIClient):
+        def create(self, **kwargs):
+            raise AuthenticationError("401 invalid api key sk-abc123SECRET")
+
+    judge = build_judge("llama-3.3-70b-versatile", provider="groq", client=Boom())
+    with pytest.raises(ProviderError) as exc:
+        judge.equivalent("a", "b")
+    message = str(exc.value)
+    assert "Groq" in message, message
+    assert "OpenAI" not in message, message
+    assert "GROQ_API_KEY" in message, message
+    assert "sk-abc123SECRET" not in message, message
+
+
+def test_a_gpt5_judge_does_not_send_a_temperature_it_will_400_on():
+    """`[S] 2026-08-31` the gpt-5 family is REASONING and rejects a non-default temperature
+    (*"Only the default (1) value is supported"*). `[M]` `data/models.json` ships `gpt-5.5`
+    as active, so the registry pointed users at a judge model that would 400 on every call --
+    and `preflight()` makes no network request, so it would have failed only AFTER every
+    replay was paid for."""
+    client = FakeOpenAIClient()
+    build_judge("gpt-5.5", client=client).equivalent("a", "b")
+    assert "temperature" not in client.request, client.request
+
+    plain = FakeOpenAIClient()
+    build_judge("gpt-4o-mini", client=plain).equivalent("a", "b")
+    assert plain.request["temperature"] == 0  # unchanged for non-reasoning models
+
+
+def test_an_openrouter_judge_requires_the_host_to_honour_temperature():
+    """`[S] 2026-08-31` OpenRouter's default routing lets an upstream that does not support a
+    parameter receive the request and IGNORE it -- HTTP 200, temperature silently dropped,
+    judge silently non-deterministic. There is no error to catch, so the guard has to be sent
+    with the request."""
+    client = FakeOpenAIClient()
+    build_judge("some-model", provider="openrouter", client=client).equivalent("a", "b")
+    assert client.request["extra_body"] == {"provider": {"require_parameters": True}}
+
+    other = FakeOpenAIClient()
+    build_judge("some-model", provider="groq", client=other).equivalent("a", "b")
+    assert "extra_body" not in other.request  # host-specific, not a blanket change
+
+
 def test_a_gemini_judge_returns_a_verdict():
     client = FakeGoogleClient()
     judge = build_judge("gemini-3.1-flash-lite", client=client)

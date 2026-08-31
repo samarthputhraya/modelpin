@@ -13,15 +13,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Gemini-only user was running an engine that could not catch a wrong-but-confident answer at
   all. Judges now run on OpenAI, Google/Gemini and the four OpenAI-compatible hosts. A new
   optional `judge_provider:` key names the host when the model id does not: `gpt-*` and
-  `gemini-*` do, `llama-3.3-70b-versatile` does not, and Modelpin will not guess — an
+  `gemini-*` do, `qwen/qwen3.8-27b` does not, and Modelpin will not guess — an
   OpenRouter id such as `openai/gpt-oss-120b` begins with a *different* vendor's name, so a
   prefix parse would spend the wrong key against the wrong host. **The judge's false-positive
   rate has only ever been measured with an OpenAI judge**; running everywhere is not the same
   as being calibrated everywhere, and `docs/fp-measurement.md` now separates those two claims.
-- **Every `modelpin check` run leaves an artifact the next run cannot delete.** Alongside the
-  unchanged `.modelpin/last-report.md`, each run writes
+- **A `modelpin check` run that produces a report also archives it, where the next run cannot
+  delete it.** Alongside the unchanged `.modelpin/last-report.md`, the run writes
   `.modelpin/runs/check-<from>-to-<to>-<UTC>.md`, byte-identical to it. Previously one path was
-  overwritten on every run, so no result survived to be cited or diffed.
+  overwritten on every run, so no result survived to be cited or diffed. Two runs still leave
+  nothing, because both exit before a report exists: one where the provider rejects *every*
+  scenario, and one with no baseline. An archive failure is a warning and never costs the
+  stable report. Model ids are slugged in the filename, and a same-second collision gains a
+  `-2` suffix rather than overwriting.
 
 - **A channel census: both `modelpin check` and the public Modelpin Report now disclose what
   they could not measure.** `check` gained it first in this cycle (MP-138) and `modelpin
@@ -37,9 +41,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - **The public suite `modelpin-public-v2` is now version `3.0.0`** (`sha256:ffd99774f681` →
   `sha256:5cba1dc8b691`). `Assertion.expected_tool_calls` and `Assertion.output_schema` were
-  **removed**: they were recorded and never read, proved by differential over five trace
-  configurations returning byte-identical verdicts with the field set and with no assertions at
-  all. **No scenario's meaning changed and no verdict moves** — the suite hash covers the
+  **removed**: they were recorded and never read. `expected_tool_calls` was proved inert by
+  differential over five trace configurations returning byte-identical verdicts with the field
+  set and with no assertions at all; `output_schema` had zero readers and was declared by no
+  scenario in any shipped suite. **No scenario's meaning changed and no verdict moves** — the suite hash covers the
   validated model, so deleting a field moves it even when behaviour is identical, and a
   published artifact whose fingerprint changes without its version changing is an unannounced
   change. A scenario file still carrying either key is not an error, but Modelpin now **names
@@ -47,6 +52,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a typo such as `must_containn`, which no version has ever compared. Use `must_contain` /
   `must_not_contain`, or rely on the tool-trajectory channel, which measures tool use
   distributionally and always did the work `expected_tool_calls` appeared to.
+  The held-out false-positive set `examples/suite/` carried the same dead keys and its
+  fingerprint moved with them: `sha256:44cbde8e3b74` → `sha256:3edf6b1ae19a` (`order_status` is
+  left declaring no assertions). It is unversioned and no published number cites its hash —
+  `docs/fp-measurement.md` quotes none — but the fingerprint moved, so it is announced here
+  rather than left to be discovered.
 
 - **The report JSON sidecar gained a top-level `coverage` object** alongside `meta` and
   `results` — `channels_live`, `channels_inert`, `underpowered_scenarios`. A consumer
@@ -67,8 +77,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   retried.
 - **The GitHub Action's `provider` input advertised `anthropic`, whose adapter raises
   `NotImplementedError`.** It was also unmarked in the `--provider` help for `baseline`,
-  `check` and `report`, and in the unknown-provider error — five places, now generated from one
-  source. `anthropic` is still listed, and now says it is not yet implemented.
+  `check` and `report`, and in the unknown-provider error — five places. Four now render from
+  one source (`provider_help()`); `action.yml` cannot call Python, so its string stays
+  hand-written and is pinned to the same list by a test. `anthropic` is still listed, and now
+  says it is not yet implemented.
 - **The Groq quickstart named a model Groq had retired.** `llama-3.3-70b-versatile` returns
   `404 model_not_found`; the copy-paste command in the README could not run. Replaced with a
   currently-available id and a note that Groq rotates its catalogue. The earlier measured

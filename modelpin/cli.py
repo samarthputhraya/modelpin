@@ -113,7 +113,7 @@ providers:
 runs: {DEFAULT_RUNS}                    # N replays per scenario; below 4 the tool signal cannot fire
 judge_model: gpt-4o-mini   # semantic LLM-judge (optional; extra calls). Remove to disable.
 # judge_provider: groq    # only needed when the judge model id does not name its own
-#                         # vendor: gpt-* and gemini-* do, llama-3.3-70b-versatile does not.
+#                         # vendor: gpt-* and gemini-* do, qwen/qwen3.8-27b does not.
 """
 
 
@@ -364,6 +364,22 @@ def _live_assertion_fields() -> str:
     return " / ".join(f"`{f}`" for f in Assertion.model_fields)
 
 
+#: Keys MP-147 deleted, each with the remedy that is actually true for IT. Kept separate from
+#: the generic "this version checks ..." line because that line is correct advice for a TYPO
+#: and misleading for these two: neither has a `must_contain` equivalent.
+_REMOVED_ASSERTION_KEYS: dict[str, str] = {
+    "expected_tool_calls": (
+        "removed in suite v3. The tool-TRAJECTORY channel already measures which tools a "
+        "scenario calls, distributionally over N runs -- it always did the work this field "
+        "appeared to. Delete the field; you lose nothing."
+    ),
+    "output_schema": (
+        "removed in suite v3. No version ever checked it. For a structural claim about the "
+        "output, assert a marker with `must_contain` / `must_not_contain`, or delete it."
+    ),
+}
+
+
 def _warn_unrecognised_assertions(scenarios_dir: str) -> None:
     """Say once, per run, that a declared assertion key is not one this version checks.
 
@@ -386,9 +402,17 @@ def _warn_unrecognised_assertions(scenarios_dir: str) -> None:
     console.print(
         f"[yellow]note:[/] {len(ids)} scenario(s) declare {keys} under `assertions`, which "
         f"this version does not check -- no verdict, no exit code, and no coverage is derived "
-        f"from them ({', '.join(_rich_escape(i) for i in ids)}). This version checks "
-        f"{_live_assertion_fields()}."
+        f"from them ({', '.join(_rich_escape(i) for i in ids)})."
     )
+    # A key MP-147 REMOVED needs its own remedy. `[M]` first-run-auditor, 2026-08-31: the
+    # generic line below is right for a typo and WRONG for `expected_tool_calls` -- there is
+    # no text assertion that expresses "expect this tool call", so a user reading it either
+    # guesses the field is safe to delete or wastes time shoehorning a tool check into
+    # `must_contain`. Say what actually does the job instead.
+    for key in sorted(k for k in found if k in _REMOVED_ASSERTION_KEYS):
+        console.print(f"[dim]  `{key}`: {_REMOVED_ASSERTION_KEYS[key]}[/]")
+    if any(k not in _REMOVED_ASSERTION_KEYS for k in found):
+        console.print(f"[dim]  this version checks {_live_assertion_fields()}.[/]")
 
 
 def _scenarios_source(scenarios_dir: Optional[str], config_path: str) -> str:
@@ -682,7 +706,17 @@ def check(
     scenarios_dir: Optional[str] = typer.Option(None, "--scenarios-dir"),
     store_dir: str = typer.Option(STORE_DIRNAME, "--store-dir"),
 ) -> None:
-    """Replay scenarios on a new model and report behavioral regressions."""
+    """Replay scenarios on a new model and report behavioral regressions.
+
+    Exit codes: 0 = no regression. 1 = at least one real regression (the CI gate).
+    3 = at least one scenario could not be measured -- no baseline recorded, a side that
+    recorded nothing, or a scenario the provider rejected. 3 is deliberately not 1: "we could
+    not tell" is a different claim from "it broke".
+    """
+    # `[M]` first-run-auditor 2026-08-31: the exit codes were documented in the README and in
+    # `action.yml` and NOWHERE in `--help` -- which is where someone staring at a nonzero exit
+    # in a CI log actually looks. Kept short above on purpose: the rationale belongs here, the
+    # user-facing surface gets the answer.
     mode = _resolve_match_mode(mode)
     cfg = _load_config_or_fail(config_path)
     src_dir = scenarios_dir or cfg.scenarios_dir
