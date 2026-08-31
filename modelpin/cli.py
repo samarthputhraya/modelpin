@@ -48,7 +48,7 @@ from modelpin.diff.stats import (
     min_achievable_pvalue_mean,
 )
 from modelpin.models import DiffResult, DiffVerdict, Scenario
-from modelpin.providers import ProviderAdapter, ProviderError, get_adapter
+from modelpin.providers import ProviderAdapter, ProviderError, get_adapter, provider_help
 from modelpin.providers.fake import FakeProvider
 from modelpin.replay import replay
 from modelpin.report import (
@@ -628,9 +628,7 @@ def baseline(
     model: Optional[str] = typer.Option(
         None, "--model", help="Model to baseline (default: config)."
     ),
-    provider: Optional[str] = typer.Option(
-        None, "--provider", help="openai | google | anthropic | groq | openrouter | fake."
-    ),
+    provider: Optional[str] = typer.Option(None, "--provider", help=provider_help()),
     fixtures: Optional[str] = typer.Option(
         None, "--fixtures", help="Canned traces for --provider fake (required with it)."
     ),
@@ -670,9 +668,7 @@ def baseline(
 def check(
     to: str = typer.Option(..., "--to", help="The new model id to test against your baseline."),
     from_: Optional[str] = typer.Option(None, "--from", help="Baseline model (default: config)."),
-    provider: Optional[str] = typer.Option(
-        None, "--provider", help="openai | google | anthropic | groq | openrouter | fake."
-    ),
+    provider: Optional[str] = typer.Option(None, "--provider", help=provider_help()),
     fixtures: Optional[str] = typer.Option(
         None, "--fixtures", help="Canned traces for --provider fake (required with it)."
     ),
@@ -914,9 +910,7 @@ def report(
         help="Reference/incumbent model to compare against (pass the same id as --to for a "
         "baseline characterization).",
     ),
-    provider: Optional[str] = typer.Option(
-        None, "--provider", help="openai | google | anthropic | groq | openrouter | fake."
-    ),
+    provider: Optional[str] = typer.Option(None, "--provider", help=provider_help()),
     fixtures: Optional[str] = typer.Option(
         None, "--fixtures", help="Canned traces for --provider fake (required with it)."
     ),
