@@ -99,7 +99,12 @@ _API_ERROR_HINTS: dict[str, str] = {
 _KEY_BEARING_ERRORS: frozenset[str] = frozenset({"AuthenticationError", "PermissionDeniedError"})
 
 
-def _explain_api_error(exc: Exception, model_id: str, label: str = "OpenAI") -> str:
+def _explain_api_error(
+    exc: Exception,
+    model_id: str,
+    label: str = "OpenAI",
+    api_key_env: str | None = None,
+) -> str:
     """Turn a raw SDK/network exception into a concise, key-safe message.
 
     ``label`` names the provider (OpenAI, or an OpenAI-compatible host like Groq) so the
@@ -108,12 +113,28 @@ def _explain_api_error(exc: Exception, model_id: str, label: str = "OpenAI") -> 
     Default-deny on the secret surface: auth/permission errors drop their text
     entirely, and every other error's text is scrubbed of key-shaped tokens before
     it is interpolated — so a renamed/unlisted error class can't leak a key either.
+
+    ``api_key_env`` names the variable to fix (MP-136). `[M] 2026-08-29`, dogfood from a
+    PyPI install with a revoked Groq key: the REJECTED-key path said only *"your API key
+    was rejected (invalid or revoked) [AuthenticationError]"* while the sibling UNSET-key
+    path said *"GROQ_API_KEY is not set ... export it and retry"* -- so a stranger whose key
+    is stale got the less actionable of the two messages and had to guess the variable.
+
+    It is the variable NAME, never the value, and that distinction is why this does not
+    weaken the guard above it: the text that is dropped is ``str(exc)``, which may embed a
+    redacted key fragment. A variable name is not a secret -- the user set it themselves.
     """
     name = type(exc).__name__
     hint = _API_ERROR_HINTS.get(name, "the API call failed")
     base = f"{label} call for model {scrub_secrets(model_id)!r} failed: {hint}"
     if name in _KEY_BEARING_ERRORS:
-        return f"{base} [{name}]."
+        where = (
+            f" Modelpin read your key from {api_key_env} — check that variable holds a "
+            f"current {label} key."
+            if api_key_env
+            else ""
+        )
+        return f"{base} [{name}].{where}"
     detail = scrub_secrets(str(exc))[:300]
     return f"{base} [{name}: {detail}]."
 
@@ -316,7 +337,9 @@ class OpenAIAdapter(ProviderAdapter):
         except ProviderError:
             raise
         except Exception as exc:  # SDK/network error → friendly, key-safe ProviderError
-            raise ProviderError(_explain_api_error(exc, model_id, self._label)) from exc
+            raise ProviderError(
+                _explain_api_error(exc, model_id, self._label, self._api_key_env)
+            ) from exc
         if not (getattr(response, "choices", None) or []):
             raise ProviderError(
                 f"{self._label} returned no choices for scenario {scenario_id!r} on {model_id!r}."
