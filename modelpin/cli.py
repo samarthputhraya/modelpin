@@ -112,6 +112,8 @@ providers:
   - openai                 # uses YOUR OPENAI_API_KEY from the environment
 runs: {DEFAULT_RUNS}                    # N replays per scenario; below 4 the tool signal cannot fire
 judge_model: gpt-4o-mini   # semantic LLM-judge (optional; extra calls). Remove to disable.
+# judge_provider: groq    # only needed when the judge model id does not name its own
+#                         # vendor: gpt-* and gemini-* do, llama-3.3-70b-versatile does not.
 """
 
 
@@ -214,7 +216,7 @@ def _replay_plan(
     return plan
 
 
-def _build_judge(provider: str, cfg: ModelpinConfig):
+def _build_judge(provider: str, cfg: ModelpinConfig, to_model: str | None = None):
     """Construct + preflight the semantic LLM-judge if configured. Returns None when no
     judge_model is set or the run is offline (fake), so the diff stays purely structural."""
     if not cfg.judge_model or provider == "fake":
@@ -222,13 +224,29 @@ def _build_judge(provider: str, cfg: ModelpinConfig):
     try:
         from modelpin.judge import build_judge
 
-        # The judge is independent of the models being compared (the judge model id picks
-        # its provider), so a cross-vendor check (e.g. google vs openai) can still judge.
-        judge = build_judge(cfg.judge_model)
+        from modelpin.judge import infer_judge_provider
+
+        # The judge is independent of the models being compared, so a cross-vendor check
+        # (e.g. google vs openai) can still judge. MP-143: which HOST runs it is resolved
+        # explicitly -- `judge_provider:` first, then an unambiguous model-id prefix, then
+        # the REPLAY provider as the last resort. That last step is what makes the common
+        # zero-config case work for a Groq-only user, who otherwise had no channel that
+        # reads meaning at all; it is never a guess between two hosts, and the host is
+        # printed below so the choice is visible before any of the user's money is spent.
+        host = cfg.judge_provider or infer_judge_provider(cfg.judge_model) or provider
+        judge = build_judge(cfg.judge_model, provider=host)
         judge.preflight()
     except (ProviderError, ImportError) as exc:
         _fail(f"semantic judge ({cfg.judge_model!r}): {exc}")
-    console.print(f"[dim]semantic judge: {cfg.judge_model}[/]")
+    console.print(f"[dim]semantic judge: {cfg.judge_model} on {host}[/]")
+    if cfg.judge_model == to_model:
+        # Not an error -- it can be a deliberate, cheap choice -- but a model judging its own
+        # output is not an independent reading of it, and the north-star metric is the FP
+        # RATE of what we publish. Say so once, at the point of choosing.
+        console.print(
+            "[yellow]note:[/] the judge model is the model being checked, so the semantic "
+            "channel is not an independent reading. Prefer a different judge model."
+        )
     return judge
 
 
@@ -733,7 +751,7 @@ def check(
         f"[dim]provider={prov} from={from_model} to={to} runs={n} match={mode} | {plan}[/]"
     )
     _preflight_or_fail(adapter, prov)
-    judge = _build_judge(prov, cfg)
+    judge = _build_judge(prov, cfg, to_model=to)
 
     results = []
     skipped: list[str] = []
@@ -951,7 +969,7 @@ def report(
     plan = _replay_plan(len(scenarios), suite_dir, n, prov, cfg.judge_model, sides=2)
     console.print(f"[dim]provider={prov} from={from_} to={to} runs={n} match={mode} | {plan}[/]")
     _preflight_or_fail(adapter, prov)
-    judge = _build_judge(prov, cfg)
+    judge = _build_judge(prov, cfg, to_model=to)
 
     results: list[DiffResult] = []
     skipped: list[str] = []

@@ -322,13 +322,13 @@ So the floor rests on **one** labeled condition — and that one scores 0/1, not
   true detection, `1 - upper_bound_95(2, 6)` in
   [`scripts/fp_measurement.py`](https://github.com/samarthputhraya/modelpin/blob/main/scripts/fp_measurement.py). It can *miss* a subtle real
   change (again, the safe direction);
-- the judge is **OpenAI-only** so far;
+- every FP number above was measured with an **OpenAI judge**. The judge now RUNS on OpenAI, Gemini and the four OpenAI-compatible hosts (MP-143), but no FP rate has been measured on any of them - a judge that works is not a judge that is calibrated;
 - the structural floors are **not** FP-validated: `[M]` the held-out run contributed 0 scored
   trials, and at the shipped `runs: 5` the floors are **inert** anyway — the p-value gate is
   strictly stricter, and they first bind at N=9 (semantic), N=11 (tool), N=12 (refusal).
 
-Planned before any high-stakes reliance: ≥30 pairs including real migration traces, and a
-non-OpenAI judge. We'd rather you know this than discover it.
+Planned before any high-stakes reliance: ≥30 pairs including real migration traces, and the
+same measurement repeated with a non-OpenAI judge. We'd rather you know this than discover it.
 
 ### Proof it actually *fires*: the Drift Map
 
@@ -353,7 +353,10 @@ voice. The same capability is wired behind `mp report` — point it at any model
 ## Cross-vendor (including a free third vendor)
 
 A model migration isn't always within one lab. Modelpin diffs **across vendors** through one engine;
-a separate judge model arbitrates meaning-equivalence.
+a separate judge model arbitrates meaning-equivalence. The **judge runs on any host in the table
+below** except the Anthropic stub — set `judge_provider:` when the model id does not name its own
+vendor (`gpt-*` and `gemini-*` do; `llama-3.3-70b-versatile` does not). Its FP rate has only ever
+been measured with an OpenAI judge.
 
 | Provider | Status |
 |---|---|
@@ -377,11 +380,19 @@ export GROQ_API_KEY=...     # free at console.groq.com
 modelpin check --provider groq --from gpt-4o-mini --to llama-3.3-70b-versatile
 ```
 
-**The judge is a separate bill, and it is not Groq.** `mp init` scaffolds
-`judge_model: gpt-4o-mini`, and the semantic judge is OpenAI-only — so with the scaffolded
-config that run bills your `OPENAI_API_KEY`, or exits 1 asking for it if only `GROQ_API_KEY`
-is set. For a genuinely free run, remove `judge_model:` from `modelpin.yaml`; the diff then
-stays purely structural, exactly as in
+**The judge is a separate bill — but it can now be Groq's.** `mp init` scaffolds
+`judge_model: gpt-4o-mini`, so out of the box that run bills your `OPENAI_API_KEY`, or exits 1
+asking for it if only `GROQ_API_KEY` is set. To keep the whole run on one free key, name the
+host as well — the model id alone cannot say which one it is:
+
+```yaml
+judge_model: llama-3.3-70b-versatile
+judge_provider: groq        # openai | google | groq | openrouter | together | cerebras
+```
+
+Bear the caveat above in mind: the FP rate was measured with an OpenAI judge and has not
+been re-measured on any other host. For a run with no judge at all, remove `judge_model:`
+from `modelpin.yaml`; the diff then stays purely structural, exactly as in
 [How the behavioral diff works](#how-the-behavioral-diff-works-the-moat). The judge cost is
 disclosed before it is spent, in the `+ up to N judge calls` clause of the pre-spend line.
 
