@@ -127,6 +127,22 @@ class ChannelCensus:
     #: the offline fake", and printing the first when the second is true would put a false
     #: statement inside the disclosure that exists to be honest.
     judge_off_reason: str = "no `judge_model` configured"
+    #: MP-141. The three booleans above are suite-wide ``any()``, but blindness is
+    #: PER-SCENARIO: `tools` is declared on a scenario, not on a suite. `[M] 2026-08-31`
+    #: reproduced end to end -- two content-blind scenarios rendered "NOT cleared on
+    #: content"; adding ONE unrelated third scenario that declares `tools` flipped the same
+    #: two to a green "looks safe to adopt", because `tools_declared` went True for the
+    #: suite. `[M]` It fires on all three shipped suites: `examples/suite` 5 of 8 blind,
+    #: `examples/report-suite` 11 of 14, and the `init --demo` suite a new user runs first
+    #: 2 of 4.
+    #:
+    #: These are the compared scenarios with NO live hard content channel of their OWN.
+    #: Deliberately shaped like `underpowered` -- a list of ids, named in the output -- so
+    #: the two disclosures read the same way and can be reasoned about together.
+    blind_scenarios: tuple[str, ...] = ()
+    #: How many scenarios were compared, so a partial disclosure can say "N of M". Zero
+    #: means the caller supplied no per-scenario data and the suite-wide reading stands.
+    compared: int = 0
 
     @property
     def hard_content_channels(self) -> list[str]:
@@ -181,7 +197,24 @@ def _census_clearance(
     false on the Report, and a false direction inside the honesty disclosure is the defect
     this function exists to remove.
     """
-    if census is None or census.hard_content_channels:
+    if census is None:
+        return None
+    blind, total = census.blind_scenarios, census.compared
+    # MP-141. A PARTIAL clearance is the case MP-138 could not express: some scenarios armed
+    # a content channel and some did not, and the suite-wide `any()` let the armed ones speak
+    # for the blind ones. Shaped exactly like `_underpowered_clearance`'s partial branch --
+    # same "only partially cleared" verdict, same naming of the affected ids -- because it is
+    # the same disclosure on the other axis, and a reader should not have to learn two.
+    if blind and total and len(blind) < total:
+        return (
+            f"{arrow} No behavioral regressions found in the {total - len(blind)} scenario(s) "
+            f"where a CI-failing channel could see a change in content; {len(blind)} declare "
+            f"no `tools` and had none ({', '.join(blind)}), so `{to_model}` is only partially "
+            f"cleared. A wrong-but-confident answer in those would have passed."
+        )
+    # Fully blind -- either every compared scenario is in `blind`, or the caller supplied no
+    # per-scenario data at all and the suite-wide reading is all there is.
+    if not blind and census.hard_content_channels:
         return None
     return (
         f"{arrow} This run had NO CI-failing channel able to see a change in what the model says: "
@@ -196,9 +229,22 @@ def _census_note(census: Optional[ChannelCensus]) -> str | None:
     """One-line coverage disclosure printed beside every verdict, clean or not."""
     if census is None:
         return None
-    if not census.inert:
+    parts = []
+    if census.inert:
+        parts.append("inert this run -- " + "; ".join(census.inert))
+    # MP-141. The suite-wide list above says a channel was armed SOMEWHERE. It does not say
+    # where, and on every shipped suite the answer is "on a minority of scenarios". Without
+    # this clause a reader of `examples/report-suite` sees no `tools` entry under `inert`
+    # -- 3 scenarios declare them -- and has no way to learn the other 11 were content-blind.
+    if census.blind_scenarios and census.compared:
+        parts.append(
+            f"{len(census.blind_scenarios)} of {census.compared} scenario(s) declare no "
+            f"`tools`, so no CI-failing channel could see a content change in them "
+            f"({', '.join(census.blind_scenarios)})"
+        )
+    if not parts:
         return None
-    return "coverage: inert this run -- " + "; ".join(census.inert)
+    return "coverage: " + "; ".join(parts)
 
 
 _UNDERPOWERED_NOTE = (
@@ -222,8 +268,18 @@ def _named_blind(ids: Sequence[str], fmt: Callable[[str], str] = str) -> str:
     return ", ".join(shown) + (f", and {rest} more" if rest > 0 else "")
 
 
-def _underpowered_clearance(underpowered: Sequence[str], total: int, to_model: str) -> str | None:
-    """The line that must REPLACE an affirmative clearance, or ``None`` if none is needed."""
+def _underpowered_clearance(
+    underpowered: Sequence[str], total: int, to_model: str, *, arrow: str = "→"
+) -> str | None:
+    """The line that must REPLACE an affirmative clearance, or ``None`` if none is needed.
+
+    ``arrow`` for the reason its sibling ``_census_clearance`` has one, and it became
+    load-bearing the moment MP-141 wired this function into ``render_cli``: this string had
+    only ever reached UTF-8 Markdown, so its literal U+2192 was safe by accident. Printed to
+    a cp1252 console it is `[M] 2026-08-30`'s ``UnicodeEncodeError`` exactly -- the crash
+    MP-138 shipped, arriving a second time through the one clearance that was never called
+    from the terminal. The em dash below is fine: U+2014 IS in cp1252 (0x97); U+2192 is not.
+    """
     if not underpowered:
         return None
     # The floor depends on BOTH sides (`diff/__init__.py`: a 20-run baseline checked at
@@ -236,12 +292,12 @@ def _underpowered_clearance(underpowered: Sequence[str], total: int, to_model: s
     )
     if len(underpowered) >= total:
         return (
-            f"→ This run could not have reported a regression at all: no signal could reach "
+            f"{arrow} This run could not have reported a regression at all: no signal could reach "
             f"statistical significance at this run count. `{to_model}` is NOT cleared — "
             f"{remedy}."
         )
     return (
-        f"→ No behavioral regressions found in the {total - len(underpowered)} scenario(s) "
+        f"{arrow} No behavioral regressions found in the {total - len(underpowered)} scenario(s) "
         f"this run could measure; {len(underpowered)} could not have reported one at this "
         f"run count, so `{to_model}` is only partially cleared — for the scenario(s) named "
         f"above, {remedy}."
@@ -415,7 +471,15 @@ def render_cli(
         # not have gone red. `[M]` The first cut guarded only the Markdown side, so the CLI --
         # the surface a first-run user actually reads -- still printed a green OK above a line
         # saying the model was NOT cleared.
-        inert = census is not None and not census.hard_content_channels
+        # MP-141: a scenario is content-blind on its OWN declarations, not the suite's. The
+        # suite-wide reading is kept as the fallback for a census carrying no per-scenario
+        # data, so the marker never gets LESS honest than it was.
+        if census is None:
+            inert = False
+        elif census.blind_scenarios:
+            inert = any(r.scenario_id in set(census.blind_scenarios) for r in unchanged)
+        else:
+            inert = not census.hard_content_channels
         ok_mark = "[yellow]OK?[/]" if inert else "[green]OK[/]"
         blind = set(underpowered)
         n_blind = sum(1 for r in unchanged if r.scenario_id in blind)
@@ -441,10 +505,25 @@ def render_cli(
         # MP-138. Only reached on an all-clean run: say plainly when nothing could have
         # caught a wrong-but-confident answer, instead of letting silence read as a pass.
         # ASCII arrow: this string goes to the console, which may be cp1252.
-        weak = _census_clearance(census, to_model, arrow="->")
-        if weak:
+        #
+        # MP-141. `_underpowered_clearance` was never called from here at all -- `[M]` grep
+        # found it only in `render_pr_comment` -- so a run blind for RUN-COUNT reasons was
+        # handed the CHANNEL remedy ("add `tools`, a `judge_model`") on the terminal, which
+        # fixes nothing. Both compose, for the same reason they compose in the Markdown: too
+        # few runs and too few armed channels are independent diagnoses and a run can carry
+        # both. The ASCII arrow is passed to BOTH, or the cp1252 crash MP-138 shipped comes
+        # straight back through the sibling that was never wired up.
+        weak = [
+            x
+            for x in (
+                _underpowered_clearance(underpowered, len(results), to_model, arrow="->"),
+                _census_clearance(census, to_model, arrow="->"),
+            )
+            if x
+        ]
+        for line in weak:
             lines.append("")
-            lines.append(f"[yellow]{escape(weak)}[/]")
+            lines.append(f"[yellow]{escape(line)}[/]")
     note = _census_note(census)
     if note:
         lines.append("")
@@ -657,9 +736,9 @@ def _report_coverage(meta: ReportMeta, n_results: int) -> list[str]:
         lines += [
             "Which channels could have produced a finding on this run. A channel listed as "
             "inert could not have fired however the models behaved, so an ABSENCE of "
-            "findings is an absence only on the channels listed as live. The census is "
-            "suite-wide — a channel counts as live if any scenario armed it — so an "
-            "individual scenario may have had narrower coverage than these lists suggest.",
+            "findings is an absence only on the channels listed as live. The lists below "
+            "are suite-wide — a channel appears as live if any scenario armed it — and the "
+            "per-scenario count that follows them is what says how far that reaches.",
             "",
         ]
         if fully_blind:
@@ -696,6 +775,17 @@ def _report_coverage(meta: ReportMeta, n_results: int) -> list[str]:
             "- Refusal is detected from a fixed list of first-person English decline phrases "
             "(`modelpin/providers/_common.py`), so a decline phrased otherwise is missed."
         )
+        # MP-141. The single most misreadable thing about the lists above is that "live"
+        # means "somewhere". `[M]` On the published suite that is 3 of 14 scenarios, so a
+        # reader who took `tool trajectory` at face value would credit content coverage to
+        # 11 scenarios that had none. This line is the one that makes the lists safe to read.
+        if census.blind_scenarios and census.compared:
+            lines.append(
+                f"- **Per scenario:** {len(census.blind_scenarios)} of {census.compared} "
+                f"scenario(s) declare no `tools`, so with the judge off no CI-failing channel "
+                f"could see a change in what they say — "
+                f"{_named_blind(census.blind_scenarios)}."
+            )
     if meta.underpowered:
         lines.append(
             f"- **Run count:** {len(meta.underpowered)} of {n_results} scenario(s) were "

@@ -438,15 +438,33 @@ def _channel_census(
     of config (``_build_judge``), so inferring "no judge_model configured" would put a false
     statement inside the disclosure that exists to be honest.
     """
+    judge_enabled = judge is not None
+    # MP-141. A scenario's OWN content coverage: the judge is suite-wide (one config key),
+    # but `tools` is declared per scenario, so with the judge off a scenario that declares
+    # none has no CI-failing channel that reads content -- whatever its neighbours declare.
+    blind = () if judge_enabled else tuple(s.id for s in scenarios if not s.input.get("tools"))
     return ChannelCensus(
         tools_declared=any(s.input.get("tools") for s in scenarios),
-        assertions_declared=any(s.assertions is not None for s in scenarios),
-        judge_enabled=judge is not None,
+        # MP-141. Read the fields the ENGINE reads, not the presence of an `Assertion`
+        # object. `[M]` `diff/__init__.py` consults only `must_contain` / `must_not_contain`
+        # (`structural.py::violates_text_assertions`); `expected_tool_calls` and
+        # `output_schema` are consulted by nothing (MP-142). `[M]` The shipped demo relies on
+        # the difference: `demo.py` gives `angry_customer` an `Assertion` whose ONLY field is
+        # `expected_tool_calls`, so the old test counted a dead channel as armed in the suite
+        # a brand-new user runs first.
+        assertions_declared=any(
+            s.assertions is not None
+            and (s.assertions.must_contain or s.assertions.must_not_contain)
+            for s in scenarios
+        ),
+        judge_enabled=judge_enabled,
         judge_off_reason=(
             "disabled on the offline `fake` provider"
             if prov == "fake"
             else "no `judge_model` configured"
         ),
+        blind_scenarios=blind,
+        compared=len(scenarios),
     )
 
 
