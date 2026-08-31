@@ -39,6 +39,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   content, the affirmative headline is replaced rather than qualified.
 
 ### Changed
+- **The channel census now counts a tool the models actually CALLED, not one a scenario merely
+  declared.** `[M]` Reproduced on byte-identical fixtures: a scenario carrying one `tools` entry
+  that no run on either side ever exercised turned `could not measure … NOT cleared on content`
+  into `no behavioral change … looks safe to adopt`, over a baseline of *"FRAUD DETECTED: block
+  this transaction"* against a candidate of *"Looks fine, approve it."* The census read the
+  suite and the config; it never read the traces. A declared tool nothing calls sits exactly
+  where refusal already sits — it can only fire if the candidate *starts* calling tools, so a
+  confident wrong answer never touches it — and the census had always excluded refusal for that
+  reason. **Worse, the disclosure's own remedy was the exploit:** it told the user to *"add
+  `tools`"*, and doing so bought the green. That message now names the scenarios whose declared
+  tools went uncalled and points at a `judge_model` instead. **No verdict, confidence or exit
+  code changes** — the census governs disclosure only — but the PR-comment headline flips from
+  `✅ no behavioral change` to `❔ could not measure` on such a run, and never the other way:
+  the census requires **both** a declaration and a recorded call, so it can only ever withhold
+  a clearance the previous version granted. Two details for anyone parsing the output: the
+  phrase ``declare no `tools` `` in the coverage line became `called no tool`, and the Report
+  sidecar's `coverage.tools_declared` key became `tools_exercised`, joined by a new
+  `declared_unused_tools`.
+  `[M]` The defect is not hypothetical. On a six-scenario suite run against a real model
+  (`openai/gpt-oss-120b`), all six scenarios declared `tools` and only four ever called one —
+  a third of the suite was collecting a clearance it had not earned. (That run is a
+  maintainer dogfood suite and is not in the public repo; the reproduction in `tests/` is.)
+  **This closes the declaration-shaped instance, not the whole class.** A tool called
+  *identically* on both sides still clears a run whose answer inverted, because the trajectory
+  channel reads what the model *does*, not what it *says*. That residual is pinned by a strict
+  `xfail` in `tests/test_census_from_traces.py` rather than left to a tracker.
 - **The public suite `modelpin-public-v2` is now version `3.0.0`** (`sha256:ffd99774f681` →
   `sha256:5cba1dc8b691`). `Assertion.expected_tool_calls` and `Assertion.output_schema` were
   **removed**: they were recorded and never read. `expected_tool_calls` was proved inert by

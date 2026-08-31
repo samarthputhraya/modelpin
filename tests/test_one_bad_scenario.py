@@ -180,6 +180,6 @@ def test_coverage_numbers_exclude_the_rejected_scenario(tmp_path, monkeypatch, b
     # `greeting` and `invoice_parse` are the two scenarios that declare no `tools`, so the
     # census note names them by id. Whichever one was rejected must NOT be listed as a
     # scenario this run measured-but-could-not-see; it was not measured at all.
-    census_line = [ln for ln in r.output.splitlines() if "declare no `tools`" in ln]
+    census_line = [ln for ln in r.output.splitlines() if "called no tool" in ln]
     assert census_line, r.output  # the disclosure must still be PRESENT, not just silent
     assert not any(broken in ln for ln in census_line), r.output

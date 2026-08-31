@@ -227,7 +227,11 @@ def _armed_suite(tmp_path: Path) -> Path:
                     "scenario_id": sid,
                     "model_id": model,
                     "final_output": f"canned answer for {sid}",
-                    "tool_calls": [],
+                    # MP-159. "Armed" is a TRACE fact, not a declaration: the census counts
+                    # the tool channel live only where a run actually called one.
+                    # Identical on both sides, so the trajectory is unchanged and the
+                    # run still earns the clean headline these tests assert.
+                    "tool_calls": [{"name": "lookup_order", "arguments": {"order_id": "A-1"}}],
                     "refused": False,
                     "latency_ms": 100,
                     "tokens_out": 7,

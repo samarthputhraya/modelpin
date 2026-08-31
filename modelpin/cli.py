@@ -15,7 +15,7 @@ import json
 import shlex
 from datetime import datetime, timezone
 from pathlib import Path
-from collections.abc import Sequence
+from collections.abc import Sequence, Set as AbstractSet
 from typing import NoReturn, Optional
 
 import typer
@@ -47,7 +47,7 @@ from modelpin.diff.stats import (
     min_achievable_pvalue_distribution,
     min_achievable_pvalue_mean,
 )
-from modelpin.models import Assertion, DiffResult, DiffVerdict, Scenario
+from modelpin.models import Assertion, DiffResult, DiffVerdict, Scenario, Trace
 from modelpin.providers import ProviderAdapter, ProviderError, get_adapter, provider_help
 from modelpin.providers.fake import FakeProvider
 from modelpin.replay import replay
@@ -501,14 +501,47 @@ def _cannot_reach_alpha(nb: int, nc: int, mode: str) -> bool:
     return mode in EQUIVALENCE_MODES and min_achievable_pvalue_distribution(nb, nc) > ALPHA
 
 
+def _exercised_tools(*sides: Sequence[Trace]) -> bool:
+    """Did a tool actually get CALLED, on any run of any side?
+
+    MP-159. This is the question the tool channel's liveness turns on, and
+    ``Trace.tool_calls`` (`models.py`) is the only thing that can answer it. `[M]` The
+    diff signal cannot: ``DiffSignals.tool_call_match`` reads **1.00** -- a perfect match --
+    between two sides that each called zero tools, so a signal-based proxy would report the
+    channel live in exactly the case it is dead.
+    """
+    return any(t.tool_calls for side in sides for t in side)
+
+
 def _channel_census(
-    scenarios: Sequence[Scenario], judge: object | None, prov: str
+    scenarios: Sequence[Scenario],
+    judge: object | None,
+    prov: str,
+    *,
+    tool_active: AbstractSet[str],
 ) -> ChannelCensus:
     """MP-138's census, read off the scenarios that were actually COMPARED (MP-140).
 
-    Shared by ``check`` and ``report``. Read off the suite and the config, never off the
-    traces: a channel the scenarios never armed could not have fired however the models
-    behaved, which is exactly what a clearance must not paper over.
+    Shared by ``check`` and ``report``. The judge half is read off the config; the TOOL half
+    is read off the RECORDED TRACES, carried in by ``tool_active`` -- the ids whose runs
+    actually called a tool.
+
+    MP-159 replaced a declaration read with that trace read, for the reason this module
+    already applies to refusal one screen below. `[M] 2026-08-31`, reproduced end to end on
+    byte-identical fixtures: a scenario declaring one `tools` entry that NO run on either
+    side ever called flipped `could not measure ... NOT cleared on content` into
+    `no behavioral change ... looks safe to adopt` -- over a baseline of *"FRAUD DETECTED:
+    block this transaction"* against a candidate of *"Looks fine, approve it. asdf qwerty
+    zzzz garbage."* A declared tool that nothing calls sits in exactly the position
+    ``hard_content_channels`` already excludes refusal for: it can only fire if the
+    candidate STARTS calling tools, so a confident wrong answer never touches it. Counting
+    it restored the false comfort this census exists to remove -- and the disclosure's own
+    printed remedy, *"add `tools`"*, was what bought the green.
+
+    ``tool_active`` is keyword-only with NO default on purpose. A caller that cannot supply
+    traces must be made to say so at the call site: defaulting to "none exercised" would be
+    safe in DIRECTION but would put a false sentence -- "no run called a tool" -- inside the
+    disclosure that exists to be honest, which is the same defect one surface over.
 
     `[M]` The judge reason is computed HERE from the provider rather than inferred from
     ``judge is None`` downstream: the offline `fake` provider disables the judge regardless
@@ -516,12 +549,40 @@ def _channel_census(
     statement inside the disclosure that exists to be honest.
     """
     judge_enabled = judge is not None
+
     # MP-141. A scenario's OWN content coverage: the judge is suite-wide (one config key),
-    # but `tools` is declared per scenario, so with the judge off a scenario that declares
-    # none has no CI-failing channel that reads content -- whatever its neighbours declare.
-    blind = () if judge_enabled else tuple(s.id for s in scenarios if not s.input.get("tools"))
+    # but a tool call happens per scenario, so with the judge off a scenario whose runs
+    # called nothing has no CI-failing channel that reads content -- whatever its neighbours
+    # did. MP-159 is the second half of that sentence: the trace must show a CALL, not just
+    # the suite a declaration.
+    #
+    # BOTH halves are required, and the conjunction is the whole point of the shape. `[M]`
+    # FP review BLOCKED the first cut, which tested `s.id in tool_active` alone: a scenario
+    # with NO `tools` key whose traces nevertheless carry `tool_calls` went from HEAD's
+    # "NOT cleared on content" to "looks safe to adopt" over the same content inversion --
+    # MP-159's own defect, arriving through the other door in the same commit. That state is
+    # not reachable from a live replay (both live adapters gate the request `tools` on
+    # `scenario.input["tools"]`), but it is reachable from a hand-edited `traces.json` --
+    # which `README.md` explicitly invites -- and from a baseline recorded before the `tools`
+    # key was removed, since the store round-trips `tool_calls` faithfully.
+    #
+    # Requiring both makes the new blind set a SUPERSET of the old one for every input, so
+    # this change can only ever withhold a clearance HEAD granted, never grant one HEAD
+    # withheld. That monotonicity is the property that makes it safe to ship without new
+    # calibration, and it is the same one MP-141 claimed for itself.
+    def _tool_live(s: Scenario) -> bool:
+        return bool(s.input.get("tools")) and s.id in tool_active
+
+    blind = () if judge_enabled else tuple(s.id for s in scenarios if not _tool_live(s))
     return ChannelCensus(
-        tools_declared=any(s.input.get("tools") for s in scenarios),
+        tools_exercised=any(_tool_live(s) for s in scenarios),
+        # MP-159. The scenarios that ASKED for the tool channel and did not get it. Only the
+        # remedy wording reads this, and that is the point: telling a user to "add `tools`"
+        # when they already have is not merely useless, it is the advice that bought the
+        # false clearance in the first place.
+        declared_unused_tools=tuple(
+            s.id for s in scenarios if s.input.get("tools") and s.id not in tool_active
+        ),
         # MP-141. Read the fields the ENGINE reads, not the presence of an `Assertion`
         # object. `[M]` `diff/__init__.py` consults only `must_contain` / `must_not_contain`
         # (`structural.py::violates_text_assertions`). MP-147 deleted the two fields that
@@ -773,6 +834,11 @@ def check(
 
     results = []
     skipped: list[str] = []
+    #: MP-159. Scenario ids whose runs ACTUALLY called a tool, on either side. Accumulated
+    #: in the replay loop because that is the only place both sides' traces exist: `cand` is
+    #: a loop local and `DiffResult` carries no traces, so a census computed after the loop
+    #: has nothing left to read and used to fall back on the declaration.
+    tool_active: set[str] = set()
     #: (scenario_id, provider message) for scenarios the provider REFUSED outright. A
     #: different condition from `skipped` (no baseline recorded) and from an
     #: `insufficient_evidence` verdict (replayed, but nothing usable came back).
@@ -801,6 +867,8 @@ def check(
                 )
                 rejected.append((s.id, str(exc)))
                 continue
+            if _exercised_tools(base_traces, cand):
+                tool_active.add(s.id)
             results.append(
                 diff_scenario(s.id, from_model, to, base_traces, cand, s, mode, judge=judge)
             )
@@ -843,7 +911,7 @@ def check(
     # MP-138. `underpowered` above prices RUN COUNT. This prices CHANNEL AVAILABILITY --
     # the other way a run can be structurally unable to fail, and one `_resolve_runs`
     # cannot see because it is not a function of N.
-    census = _channel_census(compared, judge, prov)
+    census = _channel_census(compared, judge, prov, tool_active=tool_active)
 
     console.print(render_cli(results, from_model, to, n, underpowered, census, rejected))
 
@@ -991,6 +1059,7 @@ def report(
 
     results: list[DiffResult] = []
     skipped: list[str] = []
+    tool_active: set[str] = set()  # MP-159, as in `check`: read off the traces, not the suite
     for s in scenarios:
         try:
             base_traces = replay(s, from_, adapter, runs=n)
@@ -1005,6 +1074,8 @@ def report(
             console.print(f"[yellow]note:[/] scenario {s.id!r} skipped: {exc}")
             skipped.append(s.id)
             continue
+        if _exercised_tools(base_traces, cand_traces):
+            tool_active.add(s.id)
         results.append(
             diff_scenario(s.id, from_, to, base_traces, cand_traces, s, mode, judge=judge)
         )
@@ -1023,7 +1094,7 @@ def report(
     # per-scenario run count must not need this call site changed to stay honest.
     compared = [s for s in scenarios if s.id not in set(skipped)]
     underpowered = [s.id for s in compared] if _cannot_reach_alpha(n, n, mode) else []
-    census = _channel_census(compared, judge, prov)
+    census = _channel_census(compared, judge, prov, tool_active=tool_active)
 
     console.print(render_cli(results, from_, to, n, underpowered, census))
 
