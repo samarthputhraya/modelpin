@@ -274,6 +274,24 @@ def _named_blind(ids: Sequence[str], fmt: Callable[[str], str] = str) -> str:
     return ", ".join(shown) + (f", and {rest} more" if rest > 0 else "")
 
 
+#: MP-148. A scenario the provider REFUSED is a third, independent way a run can fail to
+#: mean what its verdict says -- alongside too few runs (`underpowered`) and too few armed
+#: channels (the census). It is not an `insufficient_evidence` verdict either: that scenario
+#: at least replayed. This one produced no observation at all, so it appears in no bucket,
+#: and silence would make it indistinguishable from a scenario that passed.
+def _rejected_clearance(
+    rejected: Sequence[tuple[str, str]], to_model: str, arrow: str = "→"
+) -> str | None:
+    if not rejected:
+        return None
+    named = _named_blind([sid for sid, _ in rejected], lambda sid: f"`{sid}`")
+    return (
+        f"{arrow} {len(rejected)} scenario(s) were never replayed - the provider rejected "
+        f"them - so `{to_model}` is NOT fully cleared: {named}. A rejected scenario is not a "
+        f"passing one; re-run, or fix what the provider named."
+    )
+
+
 def _underpowered_clearance(
     underpowered: Sequence[str], total: int, to_model: str, *, arrow: str = "→"
 ) -> str | None:
@@ -318,6 +336,7 @@ def render_pr_comment(
     provider: str | None = None,
     underpowered: Sequence[str] = (),
     census: Optional[ChannelCensus] = None,
+    rejected: Sequence[tuple[str, str]] = (),
 ) -> str:
     """The Markdown PR comment (spec section 7). The header reflects the actual outcome —
     only a real regression leads with 🚨, so an all-unchanged result reads calm/green and
@@ -338,13 +357,18 @@ def render_pr_comment(
     elif (underpowered and len(underpowered) >= len(results)) or (
         census is not None and not census.hard_content_channels
     ):
+        # (`rejected` is handled in the `partially measured` branch below: a run that
+        # measured SOMETHING and lost a scenario is partial, not blind.)
         # A green check over a run that could not have gone red is the worst header we ship.
         # MP-138 adds the second way to get there: every CI-failing channel that reads the
         # model's CONTENT was inert, so no answer -- however wrong -- could have gone red.
         # MP-116 fixed this exact contradiction for blind runs; shipping it again for inert
         # channels would be the same defect with a new cause.
         header = f"❔ **Modelpin: could not measure — `{from_model}` → `{to_model}`**"
-    elif underpowered:
+    elif underpowered or rejected:
+        # MP-148 joins `rejected` to this branch: a suite one scenario short is exactly as
+        # partial as a suite one scenario cannot measure, and a green tick over either is
+        # the same false clearance.
         # [M] MP-116: this branch did not exist, so PARTIAL blindness fell through to the
         # green tick while the bucket label below it flagged those scenarios as unmeasurable
         # and the footer called the model "only partially cleared" -- the document
@@ -357,9 +381,17 @@ def render_pr_comment(
         header = f"✅ **Modelpin: no behavioral change — `{from_model}` → `{to_model}`**"
     lines = [
         header,
-        f"Replayed {len(results)} scenario(s) ×{runs} runs {_provenance(provider)}.",
+        f"Replayed {len(results)} scenario(s) ×{runs} runs {_provenance(provider)}"
+        + (f"; {len(rejected)} could not be replayed at all." if rejected else "."),
         "",
     ]
+    if rejected:
+        # Before every verdict bucket: what was NOT measured changes how the measured
+        # numbers should be read, so a reviewer must meet it first.
+        lines.append(f"**COULD NOT REPLAY ({len(rejected)})** - excluded from every number below")
+        for sid, reason in rejected:
+            lines.append(f"❗ `{_md_inline(sid)}` — {_md_inline(reason)}")
+        lines.append("")
     if regs:
         lines.append(f"**REGRESSIONS ({len(regs)})**")
         for r in regs:
@@ -428,6 +460,7 @@ def render_pr_comment(
             for x in (
                 _underpowered_clearance(underpowered, len(results), to_model),
                 _census_clearance(census, to_model),
+                _rejected_clearance(rejected, to_model),
             )
             if x
         ]
@@ -455,6 +488,7 @@ def render_cli(
     runs: int,
     underpowered: Sequence[str] = (),
     census: Optional[ChannelCensus] = None,
+    rejected: Sequence[tuple[str, str]] = (),
 ) -> str:
     """The CLI summary — ASCII text + rich color markup (safe on any console)."""
     _b = _bucket(results)
@@ -467,6 +501,17 @@ def render_cli(
         f"[dim]({len(results)} scenario(s) x{runs} runs)[/]",
         "",
     ]
+    if rejected:
+        # MP-148. Named FIRST, and never with a verdict marker: these scenarios produced no
+        # observation, so they belong to no bucket. Every id and message is `escape`d --
+        # both are provider- or author-controlled text reaching a rich console.
+        lines.append(
+            f"[yellow]!![/] {len(rejected)} scenario(s) could not be replayed and are in "
+            f"NO number below:"
+        )
+        for sid, reason in rejected:
+            lines.append(f"   [yellow]-[/] [bold]{escape(sid)}[/]: [dim]{escape(reason)}[/]")
+        lines.append("")
     for r in regs + unmeasured + minors:
         lines.append(
             f"{_CLI_MARK[r.verdict]} [bold]{r.scenario_id}[/]: {escape(r.explanation)} "
@@ -538,6 +583,7 @@ def render_cli(
             for x in (
                 _underpowered_clearance(underpowered, len(results), to_model, arrow="->"),
                 _census_clearance(census, to_model, arrow="->"),
+                _rejected_clearance(rejected, to_model, arrow="->"),
             )
             if x
         ]

@@ -741,6 +741,10 @@ def check(
 
     results = []
     skipped: list[str] = []
+    #: (scenario_id, provider message) for scenarios the provider REFUSED outright. A
+    #: different condition from `skipped` (no baseline recorded) and from an
+    #: `insufficient_evidence` verdict (replayed, but nothing usable came back).
+    rejected: list[tuple[str, str]] = []
 
     def _run_check() -> None:
         for s in scenarios:
@@ -748,14 +752,42 @@ def check(
             if not base_traces:
                 skipped.append(s.id)
                 continue
-            cand = replay(s, to, adapter, runs=n)
+            try:
+                cand = replay(s, to, adapter, runs=n)
+            except ProviderError as exc:
+                # MP-148. One scenario the provider rejects must not delete the others.
+                # `[M] 2026-08-31` three hard 400s on the live aegis run each killed all six
+                # scenarios and produced NOTHING -- including one where the model
+                # HALLUCINATED a tool name, which is itself the behaviour change this tool
+                # exists to catch. `report` already survived this; `check`, the command CI
+                # runs, did not. Deliberately NOT a retry (that is MP-139's rule, and a 400
+                # must still not be retried): skip, disclose, and refuse to call the run
+                # clean. ProviderError messages are key-scrubbed by the adapters.
+                console.print(
+                    f"[yellow]note:[/] scenario {_rich_escape(s.id)!r} could not be "
+                    f"replayed: {_rich_escape(str(exc))}"
+                )
+                rejected.append((s.id, str(exc)))
+                continue
             results.append(
                 diff_scenario(s.id, from_model, to, base_traces, cand, s, mode, judge=judge)
             )
 
+    # NotImplementedError stays a HARD failure: an unimplemented adapter is a config error
+    # that would fail every scenario identically, so swallowing it per scenario would turn a
+    # misconfigured run into a silent no-op instead of an answerable message (MP-128).
     _guard_replay(prov, _run_check)
 
     if not results:
+        if rejected:
+            # The pre-MP-148 path sent the user to `modelpin baseline` here -- advice for a
+            # condition they were not in. A baseline exists; the provider refused every
+            # scenario. EXIT_UNMEASURED, not 1: nothing was measured, so nothing regressed.
+            console.print(
+                f"[yellow]could not measure:[/] the provider rejected all "
+                f"{len(rejected)} scenario(s); nothing was compared."
+            )
+            raise typer.Exit(code=EXIT_UNMEASURED)
         _fail("nothing to compare. Record a baseline first with `modelpin baseline`.")
 
     # MP-55. Which scenarios were compared at run counts where NO signal could reach ALPHA?
@@ -768,7 +800,12 @@ def check(
     # The scenarios that actually produced `results` -- a scenario with no stored baseline is
     # skipped above and never diffed. Both disclosures below must be read off THIS set, or
     # they describe a run that did not happen.
-    compared = [s for s in scenarios if base.get(s.id)]
+    # ...and NOT the ones the provider rejected: a scenario that never replayed was never
+    # measured, so counting it here would price coverage for a run that did not happen.
+    # MP-138 shipped exactly that mistake once and review caught it; MP-148 is the same
+    # trap with a new cause.
+    _rejected_ids = {sid for sid, _ in rejected}
+    compared = [s for s in scenarios if base.get(s.id) and s.id not in _rejected_ids]
     underpowered = [s.id for s in compared if _blind(s.id)]
 
     # MP-138. `underpowered` above prices RUN COUNT. This prices CHANNEL AVAILABILITY --
@@ -776,7 +813,7 @@ def check(
     # cannot see because it is not a function of N.
     census = _channel_census(compared, judge, prov)
 
-    console.print(render_cli(results, from_model, to, n, underpowered, census))
+    console.print(render_cli(results, from_model, to, n, underpowered, census, rejected))
 
     # Decide the CI exit code BEFORE any side effect, so a report-write failure
     # can never silently mask a real regression.
@@ -787,7 +824,7 @@ def check(
     try:
         report_path.parent.mkdir(parents=True, exist_ok=True)
         report_path.write_text(
-            render_pr_comment(results, from_model, to, n, prov, underpowered, census),
+            render_pr_comment(results, from_model, to, n, prov, underpowered, census, rejected),
             encoding="utf-8",
         )
         console.print(f"\n[dim]PR-style Markdown report written to {report_path}[/]")
@@ -802,7 +839,12 @@ def check(
 
     if has_regression:
         raise typer.Exit(code=1)  # fail CI on a real regression
-    if unmeasured:
+    if unmeasured or rejected:
+        # `rejected` (MP-148) rides the same exit as `insufficient_evidence`: both mean the
+        # suite did not fully answer the question. Deliberately BELOW the regression check --
+        # a real regression in the scenarios that DID run is still the strongest true claim
+        # available, and downgrading it to "could not measure" because a sibling scenario
+        # 400'd would hide the finding CI exists to surface.
         # EXIT_UNMEASURED, not 1: a run that measured nothing is not a regression, and
         # reporting it as one would put a false claim in the Action's PR comment. Not 2
         # either -- Click already uses 2 for a usage error, so `mp check --bogus` exits 2.
