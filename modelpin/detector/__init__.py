@@ -7,10 +7,22 @@ import re
 from pathlib import Path
 from typing import Iterable
 
+#: The o-series numbers that actually exist. `[M] 2026-08-29` the pattern was `o[0-9]`,
+#: which matched **`o2`** at `rich/_emoji_codes.py:3381`, whose content is `"o2": "\U0001f17e"`
+#: -- an emoji shortcode, and `o2` is not an OpenAI model at all. Enumerating the real
+#: numbers is deliberate: the o-series is a short, slow-moving list, and a MISSED model in
+#: `scan` costs the user a line in a table they can add by hand, while a FABRICATED one is
+#: the north-star failure showing up in the first command a stranger runs. Add `5` here when
+#: `o5` ships; `tests/test_detector_patterns.py` documents that this is the one-token edit.
+_O_SERIES_DIGITS = "134"
 # Conservative patterns; extend as providers add families.
 MODEL_PATTERNS = [
     re.compile(r"\bgpt-[0-9][\w.\-]*\b"),
-    re.compile(r"\bo[0-9][\w.\-]*\b"),
+    # The suffix must be introduced by `-`, so `o3` and `o3-deep-research-2025-06-26` match
+    # while `o3XPaKcS` does not: after `o3` comes a word character, so there is no `\b` for
+    # the bare alternative and no `-` for the suffixed one. `[M] 2026-08-31` that token is
+    # not hypothetical -- it is in this repo, in `.modelpin/drift_cache_drift-suite.json`.
+    re.compile(rf"\bo[{_O_SERIES_DIGITS}](?:-[\w.\-]*)?\b"),
     re.compile(r"\bclaude-[\w.\-]+\b"),
     re.compile(r"\bgemini-[\w.\-]+\b"),
 ]
