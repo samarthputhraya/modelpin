@@ -111,7 +111,7 @@ def test_report_suite_ids_disjoint_from_held_out_suite():
 def _declared_suite_dirs() -> list[Path]:
     """Every scenario directory `examples/roles.json` declares.
 
-    `[M]` claims-auditor 2026-08-31: the guard below was pinned to `REPORT_SUITE` alone, so
+    `[M]` claims review 2026-08-31: the guard below was pinned to `REPORT_SUITE` alone, so
     `examples/refusal-suite/` landed entirely outside it. Deriving the list from `roles.json`
     -- which a new suite must join anyway, or `test_suite_roles.py` fails -- means the next
     suite is covered on the day it lands rather than the day someone remembers.

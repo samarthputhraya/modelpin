@@ -143,7 +143,7 @@ def test_a_users_stale_field_is_named_not_silently_dropped(tmp_path):
 
 
 def test_a_removed_field_gets_the_remedy_that_is_TRUE_FOR_IT(tmp_path):
-    """`[M]` first-run-auditor, 2026-08-31: the first cut answered every unknown key with the
+    """`[M]` first-run review, 2026-08-31: the first cut answered every unknown key with the
     same sentence -- "this version checks `must_contain` / `must_not_contain`". That is right
     for a typo and WRONG here: there is no text assertion that expresses "expect this tool
     call", so the reader either guesses the field is safe to delete or wastes time trying to

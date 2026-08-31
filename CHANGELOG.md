@@ -149,7 +149,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   direction: the argument gate runs at all only when the tool-name trajectory is unimodal on
   each side *and* identical across them (`structural.py::name_trajectory_is_stable`), so
   `tool_tvd` is exactly `0.0` wherever `Arg match` is populated and the new value is exactly
-  `1.00` wherever the old one was `1 - arg_tvd`. `[M]` fp-guardian priced how often that
+  `1.00` wherever the old one was `1 - arg_tvd`. `[M]` an FP review priced how often that
   differs by resampling the committed argument repertoires over 120,000 args-compared
   comparisons at N=2–6 × 4 match modes: 36,581 move (30.5%), every one toward `1.00` and none
   away. That is why this lands before the next Report publication rather than after it, and

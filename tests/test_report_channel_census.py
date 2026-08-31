@@ -322,7 +322,7 @@ def test_both_axes_are_disclosed_when_both_apply(tmp_path):
 
 
 # ---------------------------------------------------------------------------------------
-# The two claims-auditor blockers, `[M] 2026-08-31`. Both were published documents that
+# The two claims-review blockers, `[M] 2026-08-31`. Both were published documents that
 # contradicted their OWN per-scenario table, and the 11 tests above were green over both --
 # they only ever asked a CLEAN run what it said. ADR-0022's safety property, restated for
 # this surface: no channel the engine actually FLAGGED may be described as unable to fire.

@@ -145,7 +145,7 @@ class OpenAIJudge:
                 # MP-136: the judge spends the user's key too, so a rejected key here
                 # must name the variable to fix exactly as the replay path does.
                 #
-                # `self.label` is passed, and that is not cosmetic. `[M]` provider-sdk-verifier
+                # `self.label` is passed, and that is not cosmetic. `[M]` a provider-SDK review
                 # 2026-08-31: omitting it defaulted to "OpenAI", so a rejected GROQ key read
                 # "OpenAI call for model 'llama-3.3-70b-versatile' failed ... Modelpin read
                 # your key from GROQ_API_KEY - check that variable holds a current OpenAI key."

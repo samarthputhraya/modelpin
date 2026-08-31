@@ -260,7 +260,7 @@ _UNDERPOWERED_NOTE = (
 
 
 #: How many blind scenario ids to name inline before summarising the rest. `[M]`
-#: first-run-auditor, on the first draft of MP-117: a 30-scenario suite rendered every id
+#: A first-run review, on the first draft of MP-117: a 30-scenario suite rendered every id
 #: into a single ~1,200-character comma-separated wall on BOTH surfaces. Naming them is the
 #: point of MP-117 -- naming all of them at any suite size is not, and the full list is in
 #: the sidecar JSON either way. Eight fits a terminal line and a PR comment line.
@@ -701,7 +701,7 @@ def _report_header(meta: ReportMeta, results: list[DiffResult]) -> list[str]:
         # dogfood hit: the run had the power but not the channels. `render_pr_comment`
         # has refused this header since MP-138; the published Report still shipped it.
         #
-        # `[M]` claims-auditor 2026-08-31 rejected the first wording of this headline --
+        # `[M]` a claims review 2026-08-31 rejected the first wording of this headline --
         # "no channel could observe a change in content". Reproduced on a one-scenario
         # suite declaring `must_contain`: the assertion channel WAS armed, DID fire, and
         # the table below the headline published `changed_minor -- output format drift:
@@ -770,7 +770,7 @@ def _report_coverage(meta: ReportMeta, n_results: int) -> list[str]:
 
         **No channel the engine actually flagged may be described here as unable to fire.**
 
-    `[M]` claims-auditor 2026-08-31 caught two violations of exactly that in the first cut,
+    `[M]` a claims review 2026-08-31 caught two violations of exactly that in the first cut,
     both reproduced as published documents that contradicted their own tables:
 
     - A refusal regression rendered under "**Live:** none. No CI-failing channel … could see

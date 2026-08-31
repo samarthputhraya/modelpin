@@ -404,7 +404,7 @@ def _warn_unrecognised_assertions(scenarios_dir: str) -> None:
         f"this version does not check -- no verdict, no exit code, and no coverage is derived "
         f"from them ({', '.join(_rich_escape(i) for i in ids)})."
     )
-    # A key MP-147 REMOVED needs its own remedy. `[M]` first-run-auditor, 2026-08-31: the
+    # A key MP-147 REMOVED needs its own remedy. `[M]` first-run review, 2026-08-31: the
     # generic line below is right for a typo and WRONG for `expected_tool_calls` -- there is
     # no text assertion that expresses "expect this tool call", so a user reading it either
     # guesses the field is safe to delete or wastes time shoehorning a tool check into
@@ -713,7 +713,7 @@ def check(
     recorded nothing, or a scenario the provider rejected. 3 is deliberately not 1: "we could
     not tell" is a different claim from "it broke".
     """
-    # `[M]` first-run-auditor 2026-08-31: the exit codes were documented in the README and in
+    # `[M]` first-run review, 2026-08-31: the exit codes were documented in the README and in
     # `action.yml` and NOWHERE in `--help` -- which is where someone staring at a nonzero exit
     # in a CI log actually looks. Kept short above on purpose: the rationale belongs here, the
     # user-facing surface gets the answer.
@@ -742,7 +742,7 @@ def check(
     # `min(baseline_sizes)` and so describes the weakest scenario, not every one.
     uneven = nonuniform_run_counts(base, [s.id for s in scenarios])
     if uneven:
-        # `escape`, not raw: `[M]` first-run-auditor crashed `mp check` with an unhandled
+        # `escape`, not raw: `[M]` a first-run review crashed `mp check` with an unhandled
         # rich MarkupError and a full traceback (exit 1, no warning printed) on a scenario
         # id containing a lone `[/]`. Scenario ids are author-controlled text and reach
         # every console string through this path; `report/render_cli` already escapes them.

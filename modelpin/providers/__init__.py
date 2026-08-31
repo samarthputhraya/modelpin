@@ -73,5 +73,5 @@ def get_adapter(provider: str) -> ProviderAdapter:
         return build_openai_compatible_adapter(provider)
 
     # NOT `(try: {provider_help()})`: `provider_help` ends in its own parenthetical, so
-    # wrapping it closed with `run.))`. `[M]` first-run-auditor, 2026-08-31.
+    # wrapping it closed with `run.))`. `[M]` first-run review, 2026-08-31.
     raise ValueError(f"Unknown provider: {provider}. Valid: {provider_help()}")

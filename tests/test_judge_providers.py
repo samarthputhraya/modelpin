@@ -138,7 +138,7 @@ def test_a_groq_judge_reaches_groq_and_returns_a_verdict():
 
 
 def test_a_non_openai_judge_error_names_the_RIGHT_vendor():
-    """`[M]` provider-sdk-verifier, 2026-08-31: MP-136's exact defect, reintroduced on the
+    """`[M]` a provider-SDK review, 2026-08-31: MP-136's exact defect, reintroduced on the
     host path MP-143 opened. `_explain_api_error`'s `label` defaults to "OpenAI", so a
     rejected Groq key read *"OpenAI call for model 'llama-3.3-70b-versatile' failed ...
     Modelpin read your key from GROQ_API_KEY - check that variable holds a current OpenAI
