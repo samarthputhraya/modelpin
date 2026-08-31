@@ -299,7 +299,7 @@ def test_report_renders_the_public_suite_provenance(tmp_path):
     assert r.exit_code == 0, r.output
     md = next(out.glob("*.md")).read_text(encoding="utf-8")
     assert "modelpin-public-v2" in md
-    assert "sha256:ffd99774f681" in md  # the committed public suite's pinned hash
+    assert "sha256:5cba1dc8b691" in md  # the committed public suite's pinned hash (v3.0.0, MP-147)
     assert "`unordered`" in md  # --match was threaded into the settings block
     assert "`disabled`" in md  # fake provider -> no judge -> labeled disabled
     assert "No behavioral change observed" in md  # earned: identical traces on both sides

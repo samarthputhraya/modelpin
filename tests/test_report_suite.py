@@ -21,7 +21,10 @@ HELD_OUT_SUITE = str(REPO / "examples" / "suite")
 #: Pinned content hash of the committed public suite. If a scenario changes, bump
 #: examples/report-suite/manifest.json's suite_version AND update this value in the same
 #: commit — that is the point: a silent scenario mutation fails CI here.
-GOLDEN_SUITE_HASH = "sha256:ffd99774f681"
+# MP-147 moved this deliberately: `sha256:ffd99774f681` -> suite version 3.0.0. The two
+# write-only assertion fields were deleted, which changes the hash of the VALIDATED model
+# without changing any scenario's meaning or any verdict.
+GOLDEN_SUITE_HASH = "sha256:5cba1dc8b691"
 
 #: Comparative-quality words a public report must never emit about a model (spec section 9).
 _BANNED = re.compile(
@@ -60,7 +63,10 @@ def test_suite_hash_changes_on_scenario_mutation():
 
 
 def test_read_manifest_returns_suite_identity():
-    assert read_manifest(REPORT_SUITE) == ("modelpin-public-v2", "2.0.0")
+    # 3.0.0 since MP-147 removed the two write-only assertion fields. The suite ID does not
+    # move with it: `-v2` names the DISCRIMINATING generation of the suite (v1 was the easy
+    # one a published report already calls superseded), not its semver.
+    assert read_manifest(REPORT_SUITE) == ("modelpin-public-v2", "3.0.0")
 
 
 def test_read_manifest_falls_back_to_documented_defaults_when_absent(tmp_path):

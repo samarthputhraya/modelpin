@@ -47,7 +47,7 @@ from modelpin.diff.stats import (
     min_achievable_pvalue_distribution,
     min_achievable_pvalue_mean,
 )
-from modelpin.models import DiffResult, DiffVerdict, Scenario
+from modelpin.models import Assertion, DiffResult, DiffVerdict, Scenario
 from modelpin.providers import ProviderAdapter, ProviderError, get_adapter, provider_help
 from modelpin.providers.fake import FakeProvider
 from modelpin.replay import replay
@@ -61,7 +61,7 @@ from modelpin.report import (
 )
 from modelpin.report.suite import compute_suite_hash, read_manifest, slug
 from modelpin.scenarios import _RESERVED_FILES as _RESERVED_IN_DIR
-from modelpin.scenarios import ScenarioError, load_scenarios
+from modelpin.scenarios import ScenarioError, load_scenarios, unrecognised_assertion_keys
 from modelpin.storage import (
     STORE_DIRNAME,
     BaselineError,
@@ -353,58 +353,41 @@ def _load_scenarios_or_fail(
         _fail(str(exc))
     if not scenarios:
         _fail_no_scenarios(scenarios_dir, source, config_path)
-    _warn_unimplemented_assertions(scenarios)
+    _warn_unrecognised_assertions(scenarios_dir)
     return scenarios
 
 
-#: Assertion fields this version records but never checks (MP-142). `[M] 2026-08-31`,
-#: differential proof: for five trace configurations -- including baseline SATISFIES the
-#: expectation while the candidate VIOLATES it, and the candidate calling a tool the
-#: expectation never named -- `diff_scenario` returns a byte-identical verdict, confidence
-#: and explanation whether the field is set or `None`. `[M]` References that READ either
-#: field anywhere under `modelpin/`: zero. They are write-only.
-_UNIMPLEMENTED_ASSERTION_FIELDS = ("expected_tool_calls", "output_schema")
+#: The assertion fields this version actually CHECKS, quoted back to the user when their file
+#: declares something else. Read off the model so the message cannot drift from the code --
+#: three hand-maintained copies of one list is the MP-03 shape, and MP-128 hit it again.
+def _live_assertion_fields() -> str:
+    return " / ".join(f"`{f}`" for f in Assertion.model_fields)
 
 
-def _warn_unimplemented_assertions(scenarios: Sequence[Scenario]) -> None:
-    """Say once, per run, that a declared assertion field is not one this version checks.
+def _warn_unrecognised_assertions(scenarios_dir: str) -> None:
+    """Say once, per run, that a declared assertion key is not one this version checks.
 
-    The defect MP-142 names is the word SILENTLY -- "a model field that silently does
-    nothing is the same class of defect as a green tick over an unmeasured run". This
-    removes the silence, which is the half that misleads.
+    MP-142's defect was the word SILENTLY -- "a model field that silently does nothing is the
+    same class of defect as a green tick over an unmeasured run". MP-147 then deleted the two
+    dead fields (`expected_tool_calls`, `output_schema`), which alone would have made this
+    WORSE for anyone with existing scenario files: pydantic ignores unknown keys, so their
+    assertion would have gone from documented-but-inert to invisible. So the advisory moved
+    with the fields -- it now reads the raw JSON rather than the parsed model, and therefore
+    also catches a typo (`must_containn`) that no version has ever checked.
 
-    Deliberately NOT deleting the fields, and that is a scope decision with evidence behind
-    it, not an omission. `[M] 2026-08-31` `compute_suite_hash` hashes the VALIDATED pydantic
-    model (`report/suite.py:38-41`), so removing them from `Assertion` changes the content
-    hash of both shipped suites: `examples/report-suite` (role `public`, ADR-0009)
-    `sha256:ffd99774f681` -> `sha256:eed334061b5e`, and `examples/suite` (role `score`, the
-    held-out false-positive set ADR-0025 forbids tuning on) `sha256:44cbde8e3b74` ->
-    `sha256:5482ccd734fd`. The first is cited in a PUBLISHED report's own reproduce block,
-    in `GOLDEN_SUITE_HASH`, and by the frozen `drift-suite` fixture behind the Drift Map.
-    Deleting is therefore a public suite-version bump, not the one-hour edit the row
-    assumed -- so it is filed as its own decision rather than taken as a side effect here.
-
-    A warning, not an error: our own shipped suites declare these fields, and failing on
-    them would refuse to run the suite the published Report is built from.
+    A warning, not an error: refusing to run over an unknown key would turn a stale scenario
+    file into a hard failure on upgrade, which is a worse trade than an honest note.
     """
-    flagged = {
-        f: [
-            s.id
-            for s in scenarios
-            if s.assertions is not None and getattr(s.assertions, f, None) is not None
-        ]
-        for f in _UNIMPLEMENTED_ASSERTION_FIELDS
-    }
-    named = {f: ids for f, ids in flagged.items() if ids}
-    if not named:
+    found = unrecognised_assertion_keys(scenarios_dir)
+    if not found:
         return
-    fields = ", ".join(f"`{f}`" for f in named)
-    ids = sorted({sid for ids in named.values() for sid in ids})
+    keys = ", ".join(f"`{k}`" for k in sorted(found))
+    ids = sorted({sid for sids in found.values() for sid in sids})
     console.print(
-        f"[yellow]note:[/] {len(ids)} scenario(s) declare {fields}, which this version "
-        f"records but never checks -- no verdict, no exit code, and no coverage is derived "
-        f"from them ({', '.join(ids)}). Use `must_contain` / `must_not_contain` for an "
-        f"assertion that is actually compared."
+        f"[yellow]note:[/] {len(ids)} scenario(s) declare {keys} under `assertions`, which "
+        f"this version does not check -- no verdict, no exit code, and no coverage is derived "
+        f"from them ({', '.join(_rich_escape(i) for i in ids)}). This version checks "
+        f"{_live_assertion_fields()}."
     )
 
 
@@ -517,11 +500,12 @@ def _channel_census(
         tools_declared=any(s.input.get("tools") for s in scenarios),
         # MP-141. Read the fields the ENGINE reads, not the presence of an `Assertion`
         # object. `[M]` `diff/__init__.py` consults only `must_contain` / `must_not_contain`
-        # (`structural.py::violates_text_assertions`); `expected_tool_calls` and
-        # `output_schema` are consulted by nothing (MP-142). `[M]` The shipped demo relies on
-        # the difference: `demo.py` gives `angry_customer` an `Assertion` whose ONLY field is
-        # `expected_tool_calls`, so the old test counted a dead channel as armed in the suite
-        # a brand-new user runs first.
+        # (`structural.py::violates_text_assertions`). MP-147 deleted the two fields that
+        # were read by nothing, so today an `Assertion` with neither live field set is an
+        # EMPTY one -- which is still not coverage, and this check is still what says so.
+        # `[M]` The shipped demo relied on the difference: `angry_customer` once carried an
+        # `Assertion` whose only field was dead, and the old test counted it as armed in the
+        # suite a brand-new user runs first.
         assertions_declared=any(
             s.assertions is not None
             and (s.assertions.must_contain or s.assertions.must_not_contain)

@@ -157,9 +157,11 @@ def test_the_terminal_clearances_stay_cp1252_encodable():
 
 
 def test_an_assertion_the_engine_never_reads_is_not_counted_as_coverage():
-    """`[M]` `demo.py` gives `angry_customer` an `Assertion` whose only field is
-    `expected_tool_calls`, which `modelpin/diff/` consults nowhere (MP-142). The engine reads
-    `must_contain` / `must_not_contain` only."""
+    """`[M]` `demo.py` once gave `angry_customer` an `Assertion` whose only field was
+    `expected_tool_calls`, which `modelpin/diff/` consulted nowhere (MP-142). MP-147 deleted
+    that field, so the same file now parses to an EMPTY `Assertion` -- which pydantic accepts
+    silently. Still not coverage, and this is still the assertion that says so: the engine
+    reads `must_contain` / `must_not_contain` only."""
     dead = _channel_census(
         [_scn("s", assertions=Assertion(expected_tool_calls=["cancel_subscription"]))],
         None,
