@@ -806,11 +806,8 @@ def check(
 
     A scenario with NO recorded baseline is the deliberate exception: it is named in the
     report, on the console and in the archive, and it removes the affirmative clearance --
-    but it does not fail the build. `[M]` The only remedy, `modelpin baseline`, replays and
-    re-bills the whole suite and re-pins every reference to the `from` model's behaviour
-    today, and adding a scenario is the most routine thing a user does. A gate clearable only
-    by overwriting the reference is worse than no gate. Revisit when a baseline can be
-    recorded for just the missing scenarios (MP-171).
+    but it does not fail the build, because the only remedy re-bills and re-pins the whole
+    suite. Reasoning, options and revisit trigger: ADR-0033.
     """
     # `[M]` first-run review, 2026-08-31: the exit codes were documented in the README and in
     # `action.yml` and NOWHERE in `--help` -- which is where someone staring at a nonzero exit

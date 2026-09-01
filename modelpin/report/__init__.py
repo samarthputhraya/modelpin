@@ -345,13 +345,10 @@ def _skipped_clearance(
     note that runs AFTER `last-report.md` is written, so the artifact CI posts named the
     scenario ZERO times while the run exited 0.
 
-    The remedy is deliberately NOT phrased as `rejected`'s. `[M]` `modelpin baseline` is one
-    dict comprehension over every scenario (`cli.py`) whose result REPLACES the whole stored
-    baseline, so "just re-baseline" re-bills the entire suite and re-pins every reference to
-    the `from` model's behaviour today. That asymmetry is also why MP-160 does not fail the
-    build on this condition: a gate whose only remedy is expensive and destructive is
-    coercion, and the north-star metric is the false-POSITIVE rate. Revisit when
-    `modelpin baseline` can record only the missing scenarios.
+    The remedy is deliberately NOT phrased as `rejected`'s -- "re-run" is free, recording a
+    baseline is not. That asymmetry is also why this condition does not fail the build. The
+    measurement, the options weighed and the revisit trigger are recorded once, in ADR-0033;
+    do not restate them here, and do not flip the exit code without superseding it.
 
     ``fmt`` exists because the two surfaces escape differently: ``render_cli`` wraps the
     whole line in rich ``escape()`` at emission, so it must receive RAW ids, while the

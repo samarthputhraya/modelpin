@@ -26,13 +26,11 @@ WHY THIS IS NOT A LITERAL MIRROR OF `rejected`, which is the whole lesson of the
      docstring claimed only ONE test discriminated; that was wrong, and understating your own
      guard is still a false claim about a measurement.
 
-  2. `[M]` The remedy is not mirrorable either. `rejected`'s is "re-run" -- free. This one is
-     `modelpin baseline`, which replays and re-bills the WHOLE suite and re-pins every
-     reference to the `from` model's behaviour today. That asymmetry is why this row
-     deliberately does NOT add `skipped` to the build-failing exit: a gate whose only remedy
-     is expensive and destructive is coercion, and adding a scenario is the single most
-     routine thing a user does with this product. Disclose absolutely; coerce never. Revisit
-     when `modelpin baseline` can record only the missing scenarios.
+  2. `[M]` The remedy is not mirrorable either, which is why this row deliberately does NOT
+     add `skipped` to the build-failing exit. Disclose absolutely; coerce never. The argument
+     and its revisit trigger live in ADR-0033 -- `test_a_skipped_scenario_denies_the_
+     affirmative_clearance` below pins exit 0 and the withheld clearance TOGETHER, so flipping
+     the exit code without superseding that record fails this suite.
 
 What DID change about exit codes is a plain bug, not policy: `[M]` with every scenario
 un-baselined the command exited **1**, the code that means REGRESSION, over a run that
