@@ -54,9 +54,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   exit **1** — the code meaning *regression* — over a run that measured nothing; it now exits 3,
   per the rule that a run which measured nothing abstains. And that path wrote no artifact at
   all, so the previous run's report stayed on disk and the Action published a stale verdict
-  under a failing run; it now writes its own. The documented exit-code contract in `--help`,
-  the README, `action.yml` and the Action README said 3 covered "no baseline recorded", which
-  was never true — all four are corrected.
+  under a failing run; it now writes its own. And a run with no usable baseline file exited 1,
+  so the Action annotated the PR with *"Modelpin detected a behavioral regression"* over a run
+  that never called a model — a false claim about someone's model, posted into their PR. It
+  abstains now. The documented exit-code contract was wrong in all four places it appears:
+  `--help` said 3 covered "no baseline recorded" (it never did), the README and `action.yml`
+  described 3 too broadly, and the Action README omitted 3 entirely. All four are corrected.
   Also fixed: a scenario id containing rich markup (`[/]`) crashed `modelpin check` *after* the
   report was written, and crashed `modelpin report` outright.
 - **The channel census now counts a tool the models actually CALLED, not one a scenario merely

@@ -633,9 +633,17 @@ def render_cli(
             lines.append(f"   [yellow]-[/] [bold]{escape(sid)}[/]")
         lines.append("")
     for r in regs + unmeasured + minors:
+        # `escape` on the id as well as the explanation. `[M] 2026-09-01` first-run review
+        # found this by execution: the id was raw while its own neighbour on the SAME line
+        # was escaped, so a scenario id containing `[/]` raised `MarkupError` and killed
+        # `check` AND `report` -- at exit code 1, the code this round just finished defining
+        # as "a real regression". It crashes inside the `console.print(render_cli(...))` that
+        # runs BEFORE the report is written, so no artifact survives either. Untouched since
+        # the file's first commit; the FOURTH such site, found after two separate comments in
+        # this codebase claimed the last one had been closed.
         lines.append(
-            f"{_CLI_MARK[r.verdict]} [bold]{r.scenario_id}[/]: {escape(r.explanation)} "
-            f"[dim](confidence {r.confidence:.2f})[/]"
+            f"{_CLI_MARK[r.verdict]} [bold]{escape(r.scenario_id)}[/]: "
+            f"{escape(r.explanation)} [dim](confidence {r.confidence:.2f})[/]"
         )
     if unchanged:
         # MP-138. Same rule as the Markdown bucket: no green marker over a bucket that could

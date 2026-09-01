@@ -800,14 +800,17 @@ def check(
     """Replay scenarios on a new model and report behavioral regressions.
 
     Exit codes: 0 = no regression. 1 = at least one real regression (the CI gate).
-    3 = a scenario that WAS compared could not be measured (insufficient evidence, or the
-    provider rejected it), or nothing was compared at all. 3 is deliberately not 1: "we could
-    not tell" is a different claim from "it broke".
+    3 = nothing could be compared (no usable baseline, or every scenario was skipped or
+    rejected), or a scenario that WAS compared could not be measured. 3 is deliberately not
+    1: "we could not tell" is a different claim from "it broke". A configuration error --
+    no scenarios found, a bad flag -- is neither, and stays 1.
 
-    A scenario with NO recorded baseline is the deliberate exception: it is named in the
-    report, on the console and in the archive, and it removes the affirmative clearance --
-    but it does not fail the build, because the only remedy re-bills and re-pins the whole
-    suite. Reasoning, options and revisit trigger: ADR-0033.
+    A scenario with no recorded baseline is the deliberate exception: it is named in the
+    report, on the console and in the archive, and it removes the affirmative clearance, but
+    it does not by itself fail the build. `[M]` Precisely: it does not change the exit code,
+    so a run keeps whatever its COMPARED scenarios earned -- 0 if they were clean, 1 if one
+    of them regressed. Only when NOTHING is left to compare does the run abstain with 3.
+    Reasoning, options and revisit trigger: ADR-0033.
     """
     # `[M]` first-run review, 2026-08-31: the exit codes were documented in the README and in
     # `action.yml` and NOWHERE in `--help` -- which is where someone staring at a nonzero exit
@@ -826,10 +829,16 @@ def check(
         _fail("no baseline model. Pass --from or set `models:` in modelpin.yaml.")
     try:
         base = load_baseline(from_model, store_dir)
-    except FileNotFoundError as e:
-        _fail(str(e))
-    except BaselineError as e:
-        _fail(str(e))
+    except (FileNotFoundError, BaselineError) as e:
+        # EXIT_UNMEASURED, not 1. `[M] 2026-09-01` claims review: with no usable baseline the
+        # run replays nothing and compares nothing, and this exited **1** -- so `action.yml`
+        # took its else-branch and annotated the PR with "Modelpin detected a behavioral
+        # regression migrating to 'X'" over a run that never called a model. A false claim
+        # about someone's model, posted into their PR: the same class MP-160 fixed one
+        # instance of, reached through the setup path instead of the scenario path. ADR-0018:
+        # a run that measured nothing abstains.
+        console.print(f"[yellow]could not measure:[/] {_rich_escape(str(e))}")
+        raise typer.Exit(code=EXIT_UNMEASURED)
     # [M] MP-116: an uneven baseline is scored correctly per scenario (MP-72), but it splits
     # the run into a measured half and a structurally blind half, and NOTHING said so -- the
     # posted report then led with a green clearance. Reported, not raised: `load_baseline` is

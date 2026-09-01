@@ -39,6 +39,7 @@ compared nothing. ADR-0018 says a run that measured nothing abstains.
 
 from __future__ import annotations
 
+import io
 import json
 import shutil
 import tempfile
@@ -337,3 +338,52 @@ def test_mp_report_survives_a_scenario_id_that_looks_like_rich_markup(tmp_path, 
         ],
     )
     assert "MarkupError" not in repr(r.exception), repr(r.exception)
+
+
+def test_a_regression_verdict_survives_a_scenario_id_that_looks_like_rich_markup(tmp_path):
+    """`[M] 2026-09-01` first-run review found a FOURTH unescaped scenario-id site, by
+    execution: `render_cli`'s verdict loop interpolated `r.scenario_id` raw while escaping
+    `r.explanation` on the same line. A regression or minor on a scenario whose id contains
+    `[/]` raised `MarkupError` and killed the command at exit **1** -- the code this row just
+    finished defining as "a real regression" -- and it crashes inside the `console.print`
+    that runs BEFORE the report is written, so no artifact survives either.
+
+    Two comments in this codebase had already claimed the last such site was closed. This is
+    the assertion instead of a third claim."""
+    from rich.console import Console
+
+    from modelpin.models import DiffResult, DiffSignals, DiffVerdict
+    from modelpin.report import render_cli
+
+    for verdict in (
+        DiffVerdict.regression,
+        DiffVerdict.changed_minor,
+        DiffVerdict.insufficient_evidence,
+    ):
+        r = DiffResult(
+            scenario_id="brack[/]et_reg",
+            from_model="a",
+            to_model="b",
+            verdict=verdict,
+            confidence=0.99,
+            explanation="tool-call behavior changed",
+            signals=DiffSignals(),
+        )
+        out = render_cli([r], "a", "b", 5)
+        buf = io.StringIO()
+        Console(file=buf, width=200).print(out)  # must not raise MarkupError
+        # Assert on the RENDERED text, not the markup: after escaping, the markup carries
+        # rich's marker and only the console output shows what the user actually reads.
+        assert "brack[/]et_reg" in buf.getvalue()
+
+
+def test_no_usable_baseline_abstains_instead_of_claiming_a_regression(tmp_path):
+    """`[M] 2026-09-01` claims review. With no baseline FILE the run replays nothing and
+    compares nothing, and it exited **1** -- so `action.yml` took its else-branch and
+    annotated the PR *"Modelpin detected a behavioral regression migrating to X"* over a run
+    that never called a model. A false claim about someone's model, in their PR: the same
+    class MP-160 fixed, reached through the setup path rather than the scenario path."""
+    r = _check(str(tmp_path / "no-such-store"))
+    assert r.exit_code == cli.EXIT_UNMEASURED, r.output
+    assert "could not measure" in _flat(r.output)
+    assert "baseline" in r.output.lower()
