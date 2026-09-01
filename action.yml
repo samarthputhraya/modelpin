@@ -70,7 +70,7 @@ inputs:
 
 outputs:
   verdict-exit-code:
-    description: "0 clean, 1 a behavioral regression, 3 at least one scenario could not be measured."
+    description: "0 clean, 1 a behavioral regression, 3 a compared scenario could not be measured or nothing was compared. A scenario with no baseline is disclosed in the report but does not fail the build."
     value: ${{ steps.check.outputs.code }}
   report-path:
     description: "Path to the rendered Markdown report."
