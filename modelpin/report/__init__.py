@@ -520,7 +520,14 @@ def render_pr_comment(
         lines.append("")
     _blind_set = set(underpowered)
     blind_ids = [r.scenario_id for r in unchanged if r.scenario_id in _blind_set]
-    if blind_ids:
+    if not results:
+        # MP-160. The unchanged bucket was emitted with no guard, so the zero-comparison
+        # artifact this row newly writes carried `**UNCHANGED (0)**` with a green tick
+        # between the NO BASELINE section and the clearance -- a green marker over a run
+        # that compared nothing. `render_cli` has always guarded the same bucket with
+        # `if unchanged:`; the two surfaces simply disagreed until now.
+        pass
+    elif blind_ids:
         # A green tick over a scenario that could not have gone red contradicts the very
         # line below it. Name the blind ones inside the bucket, not only in the footer.
         # [M] MP-117: this printed a COUNT and nothing else, so a reviewer told "2 of 4
@@ -540,7 +547,21 @@ def render_pr_comment(
     else:
         lines.append(f"**UNCHANGED ({len(unchanged)})** ✅")
     lines.append("")
-    if regs or minors:
+    if not results:
+        # MP-160. Nothing was compared, so there is no bucket to speak from and no clearance
+        # to give. `[M]` Without this the chain below fell through to its `else` and printed
+        # "No behavioral regressions found; X looks safe to adopt." directly under a
+        # "could not measure" header -- an affirmative clearance over a run that replayed
+        # nothing, on a shape this row newly made reachable AND newly writes to disk.
+        # It still has to say something: this artifact is posted to a PR on its own, and
+        # silence under a "could not measure" header reads like an omission rather than a
+        # finding.
+        lines.append(
+            f"→ Nothing was compared, so nothing is known about `{_md_inline(to_model)}`. "
+            f"This is NOT a clean result and NOT a regression -- it is the absence of a "
+            f"measurement. Record a baseline for `{_md_inline(from_model)}` and re-run."
+        )
+    elif regs or minors:
         lines.append(f"→ Pin to `{from_model}` until resolved, or review the full diff above.")
     elif unmeasured:
         # MP-49 was exactly this line rendering over a run that measured nothing. "Safe to

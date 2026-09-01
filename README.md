@@ -162,7 +162,8 @@ jobs:
 Action inputs: `to` (required), `from`, `provider`, `config`, `scenarios-dir`, `runs`, `match`,
 `baseline`, `comment`, `fail-on-regression`, `github-token`, `modelpin-spec`, `python-version`,
 `working-directory`. Outputs: `verdict-exit-code` (0 clean, 1 a behavioral regression,
-3 a compared scenario could not be measured, or nothing was compared) and `report-path`. The usual pattern is to
+3 the run could not answer - a compared scenario was unmeasurable, the provider rejected one,
+or nothing could be compared) and `report-path`. The usual pattern is to
 **commit your baseline** so CI only replays the candidate; flip `baseline: "true"` to record fresh
 (needs the old model still reachable). Copy-paste workflow:
 [`examples/github-workflow.yml`](https://github.com/samarthputhraya/modelpin/blob/main/examples/github-workflow.yml).
@@ -523,8 +524,8 @@ trials" claim is withdrawn — those 8 could not have fired, so the honest score
 GitHub Action; the public-report engine (`mp report`) + the open suite (in this repo, not
 in the wheel); the
 [Drift Map #1](https://github.com/samarthputhraya/modelpin/blob/main/docs/reports/modelpin-drift-map-1.md) published across 5 real migration pairs;
-`pip install "modelpin[providers]"`; `[M]` **737 tests passing** (+4 `xfail` pinning the open
-MP-05 scenario-id collision and the MP-165 trajectory residual, so 741 collected), `ruff` + `black` clean. The Anthropic
+`pip install "modelpin[providers]"`; `[M]` **741 tests passing** (+4 `xfail` pinning the open
+MP-05 scenario-id collision and the MP-165 trajectory residual, so 745 collected), `ruff` + `black` clean. The Anthropic
 adapter is still a stub (deferred until a paid key is in play); not yet listed on the GitHub
 Marketplace.
 

@@ -21,10 +21,11 @@ WHY THIS IS NOT A LITERAL MIRROR OF `rejected`, which is the whole lesson of the
      inert on exactly the run where a reviewer most needs it -- a red verdict pronounced
      over a fraction of the suite. The load-bearing piece is the UNCONDITIONAL section that
      renders above the verdict buckets. `[M]` Review BUILT that mirror and ran this module
-     against it: **3 of 9 fail** -- the red-run test, the archive test (same red run, so the
-     clearance is equally unreachable) and the provenance test. An earlier version of this
-     docstring claimed only ONE test discriminated; that was wrong, and understating your own
-     guard is still a false claim about a measurement.
+     against it: **3 fail** -- the red-run test, the archive test (same red run, so the
+     clearance is equally unreachable) and the provenance test. Two earlier versions of this
+     docstring were wrong here -- one claimed a single test discriminated, the next published
+     a denominator that the module outgrew -- so the count of tests is deliberately not
+     restated: the three NAMED tests are the part that survives the module growing.
 
   2. `[M]` The remedy is not mirrorable either, which is why this row deliberately does NOT
      add `skipped` to the build-failing exit. Disclose absolutely; coerce never. The argument
@@ -39,6 +40,7 @@ compared nothing. ADR-0018 says a run that measured nothing abstains.
 
 from __future__ import annotations
 
+import hashlib
 import io
 import json
 import shutil
@@ -74,8 +76,15 @@ def _flat(text: str) -> str:
 
 
 def _subset_dir(tmp_path: Path, *keep: str, name: str = "") -> Path:
-    """A scenarios dir holding only `keep` -- what the user had when they recorded."""
-    d = tmp_path / (name or f"scen-{'-'.join(keep) or 'none'}")
+    """A scenarios dir holding only `keep` -- what the user had when they recorded.
+
+    `[M] 2026-09-01` The default name used to be `scen-<joined ids>`, and `check` echoes the
+    scenarios directory in its provenance header -- so `assert "angry_customer" in out` was
+    satisfied by the PATH, not by any disclosure. Two assertions in this module were passing
+    for that reason. The name is now content-independent so a directory can never stand in
+    for the thing under test."""
+    slug = hashlib.md5("|".join(keep).encode()).hexdigest()[:8] if keep else "none"
+    d = tmp_path / (name or f"scen-{slug}")
     d.mkdir(parents=True, exist_ok=True)
     for sid in keep:
         shutil.copy(SCEN / f"{sid}.json", d / f"{sid}.json")
@@ -142,7 +151,11 @@ def test_a_skipped_scenario_is_named_in_the_report_even_on_a_red_run(tmp_path):
     # the surface a local user actually reads -- was asserted by nothing.
     out = _flat(r.output)
     assert "2 scenario(s) had no baseline, were never compared" in out, out
-    assert "angry_customer" in out and "invoice_parse" in out, out
+    # Assert the ids appear TWICE each -- once in the console block, once in the trailing
+    # note -- so losing either surface fails. A bare `in out` was previously satisfied by the
+    # scenarios-directory path that `check` echoes in its own header.
+    for sid in ("angry_customer", "invoice_parse"):
+        assert out.count(sid) >= 2, f"{sid} appears {out.count(sid)}x, expected >=2: {out}"
 
 
 def test_the_skipped_ids_survive_into_the_archived_copy(tmp_path):
@@ -202,7 +215,8 @@ def test_every_scenario_unbaselined_abstains_rather_than_claiming_a_regression(t
     ), f"expected EXIT_UNMEASURED ({cli.EXIT_UNMEASURED}), got {r.exit_code}\n{r.output}"
     out = _flat(r.output)
     assert "could not measure" in out
-    assert "angry_customer" in out  # the ids reached the console, not just a count
+    # The DISCLOSURE line, not merely the string somewhere in the stream.
+    assert "no baseline: angry_customer" in out, out
 
 
 def test_the_zero_comparison_message_names_both_causes(tmp_path, monkeypatch):
@@ -387,3 +401,97 @@ def test_no_usable_baseline_abstains_instead_of_claiming_a_regression(tmp_path):
     assert r.exit_code == cli.EXIT_UNMEASURED, r.output
     assert "could not measure" in _flat(r.output)
     assert "baseline" in r.output.lower()
+
+
+def test_the_headline_arm_that_stops_a_green_tick_is_pinned():
+    """`[M] 2026-09-01` Review deleted `or skipped` from the "partially measured" header arm
+    -- reverting exactly the MP-160 edit -- and all 741 tests still passed. That line is the
+    one `action.yml` posts as the top of the PR comment, and the row's headline promise
+    (a skipped scenario removes the affirmative clearance) rode on nothing.
+
+    A direct unit call, not a CLI run: on the `fake` provider the census can never be fully
+    live, so a CLI-driven test cannot isolate this arm from the census arm."""
+    from modelpin.models import DiffResult, DiffSignals, DiffVerdict
+    from modelpin.report import ChannelCensus, render_pr_comment
+
+    fully_live = ChannelCensus(
+        tools_exercised=True, assertions_declared=True, judge_enabled=True, compared=1
+    )
+    clean = [
+        DiffResult(
+            scenario_id="ok",
+            from_model="v1",
+            to_model="v2",
+            verdict=DiffVerdict.unchanged,
+            confidence=1.0,
+            explanation="no behavioral change",
+            signals=DiffSignals(),
+        )
+    ]
+    green = render_pr_comment(clean, "v1", "v2", 5, "openai", (), fully_live).splitlines()[0]
+    assert "no behavioral change" in green, green  # the control: this SHOULD be green
+
+    withheld = render_pr_comment(
+        clean, "v1", "v2", 5, "openai", (), fully_live, (), ["never_compared"]
+    ).splitlines()[0]
+    assert "no behavioral change" not in withheld, withheld
+    assert "partially measured" in withheld, withheld
+
+
+def test_the_zero_comparison_console_escapes_its_scenario_ids(tmp_path):
+    """The fifth unescaped-id site: the `no baseline:` line on the abstain path is new code,
+    correctly escaped, and was guarded by nothing. Also pins the abstain message's own escape
+    against a store path containing brackets."""
+    scen = _subset_dir(tmp_path, name="scen-markup-only")
+    payload = json.loads((SCEN / "angry_customer.json").read_text(encoding="utf-8"))
+    payload["id"] = "bravo[/]boom"
+    (scen / "b.json").write_text(json.dumps(payload), encoding="utf-8")
+
+    store = _baseline_only(tmp_path, _CLEAN)
+    r = _check(store, scen_dir=scen)
+    assert r.exception is None or isinstance(r.exception, SystemExit), repr(r.exception)
+    assert r.exit_code == cli.EXIT_UNMEASURED, r.output
+    assert "bravo[/]boom" in r.output, r.output
+
+
+def test_the_zero_comparison_artifact_states_its_own_conclusion(tmp_path):
+    """The artifact is posted to a PR on its own. Silence under a "could not measure" header
+    reads as an omission; and an affirmative clearance there would be the defect this whole
+    row exists to remove."""
+    from modelpin.report import render_pr_comment
+
+    md = render_pr_comment([], "v1", "v2", 5, "fake", (), None, (), ["alpha"])
+    assert "looks safe to adopt" not in md, md
+    assert "UNCHANGED (0)" not in md, md
+    assert "Nothing was compared" in md, md
+    assert "NOT a clean result and NOT a regression" in md, md
+
+
+def test_a_missing_baseline_file_also_publishes_a_fresh_artifact(tmp_path):
+    """The THIRD zero-comparison exit, and the one the extraction missed.
+
+    `[M] 2026-09-01` `_publish_report` was extracted precisely because a zero-comparison exit
+    wrote no artifact -- and the `except (FileNotFoundError, BaselineError)` branch added by
+    that same commit raised without publishing. `action.yml` posts `last-report.md` whenever
+    it exists with no reference to the exit code, so a previous run's red header was
+    republished under a run that never called a model. Sibling of
+    `test_a_run_that_compared_nothing_still_publishes_a_fresh_artifact`, which covers only
+    the all-skipped path."""
+    store = _baseline_only(tmp_path, _CLEAN, _RED)
+    first = _check(store)
+    assert first.exit_code == 1, first.output  # a red run, so the stale artifact would be red
+    assert "REGRESSION" in _report(store).upper()
+    before = len(list((Path(store) / "runs").glob("*.md")))
+
+    (Path(store) / f"baseline-{DEMO_FROM}.json").unlink()
+    second = _check(store)
+    assert second.exit_code == cli.EXIT_UNMEASURED, second.output
+    md = _report(store)
+    # The conclusion sentence legitimately contains "regression" ("NOT a regression"), so
+    # assert on the HEADLINE -- the line action.yml posts at the top of the PR comment.
+    assert "behavioral regression" not in md.splitlines()[0], (
+        "stale red verdict republished: " + md.splitlines()[0]
+    )
+    assert "could not measure" in md.splitlines()[0], md.splitlines()[0]
+    assert "Nothing was compared" in md, md
+    assert len(list((Path(store) / "runs").glob("*.md"))) == before + 1, "no new archive"
