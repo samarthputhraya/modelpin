@@ -6,6 +6,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-09-02
+
+The first release in which a GREEN result is evidence. Two ways a run could report
+`looks safe to adopt` over something it never measured are closed, and the error a
+stranger hits first no longer hands them the command they just ran.
+
+
 ### Added
 - **The semantic judge runs cross-vendor.** It accepted OpenAI judge models only, which left a
   hole with teeth: cross-vendor is a core promise, and for a suite that declares no `tools` the
