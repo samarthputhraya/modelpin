@@ -35,6 +35,8 @@ from __future__ import annotations
 import pytest
 import typer
 
+from typer.testing import CliRunner
+
 import modelpin.cli as cli
 
 #: The exact string `providers/openai.py` raises. If this drifts, the guard is measuring a
@@ -42,21 +44,25 @@ import modelpin.cli as cli
 _INSTALL_HINT = "pip install 'modelpin[providers]'"
 
 
-def _printed(monkeypatch, message: str) -> str:
-    """Whatever `_fail` actually puts on the terminal, with rich's markup applied."""
-    captured: list[str] = []
-    monkeypatch.setattr(cli.console, "print", lambda *a, **k: captured.append(str(a[0])))
-    with pytest.raises(typer.Exit):
-        cli._fail(message)
-    # Render the markup the way a real console would, so the assertion is about what a user
-    # READS, not about the markup string we happened to build.
-    from io import StringIO
+def _unwrapped(text: str) -> str:
+    """Strip ALL whitespace. Rich wraps at the console width and will break a path mid-token;
+    an assertion about CONTENT must not become an assertion about where the line broke."""
+    return "".join(text.split())
 
-    from rich.console import Console
 
-    buf = StringIO()
-    Console(file=buf, width=400, no_color=True).print(captured[0])
-    return buf.getvalue()
+def _printed(_monkeypatch, message: str) -> str:
+    """Whatever `_fail` actually puts on the terminal, rendered by the REAL console.
+
+    `[M] 2026-09-02` review: an earlier version captured `console.print` by monkeypatch and
+    re-rendered through a Console this test constructed. That measures a console of the
+    test's own design -- its width, its highlighting, its `markup` setting -- not the one
+    `cli.console` is configured with, so the guard could pass while the shipped console
+    behaved differently. `Console.capture()` renders through the actual object.
+    """
+    with cli.console.capture() as cap:
+        with pytest.raises(typer.Exit):
+            cli._fail(message)
+    return cap.get()
 
 
 def test_the_install_hint_is_not_corrupted_into_the_command_already_run(monkeypatch):
@@ -108,19 +114,47 @@ def test_the_no_scenarios_message_is_not_double_escaped(monkeypatch, tmp_path):
     """The counterpart. `_fail_no_scenarios` escaped its own argument because `_fail` did not;
     with the root cause fixed, leaving that in place prints literal backslashes at the one
     call site that had been careful."""
-    captured: list[str] = []
-    monkeypatch.setattr(cli.console, "print", lambda *a, **k: captured.append(str(a[0])))
-    with pytest.raises(typer.Exit):
-        cli._fail_no_scenarios(str(tmp_path / "[wip]"), "flag", "modelpin.yaml")
-    from io import StringIO
-
-    from rich.console import Console
-
-    buf = StringIO()
-    Console(file=buf, width=400, no_color=True).print(captured[0])
-    out = buf.getvalue()
+    with cli.console.capture() as cap:
+        with pytest.raises(typer.Exit):
+            cli._fail_no_scenarios(str(tmp_path / "[wip]"), "flag", "modelpin.yaml")
+    out = cap.get()
     # Compare against the REAL resolved path, not a backslash heuristic: on Windows the
     # separator before the bracket is itself a backslash, so `\[wip]` is what a correct
     # render looks like there. The only sound assertion is that the path round-trips.
     expected = str((tmp_path / "[wip]").resolve())
-    assert expected in out, "path corrupted. expected " + repr(expected) + " printed " + repr(out)
+    # Compare with ALL whitespace removed. The real console wraps at its own width and can
+    # break a long path mid-token, so a naive substring test fails on line wrapping rather
+    # than on corruption -- which would be a test measuring the terminal, not the product.
+    assert _unwrapped(expected) in _unwrapped(out), (
+        "path corrupted. expected " + repr(expected) + " printed " + repr(out)
+    )
+
+
+def test_scan_reports_a_file_path_that_actually_exists(tmp_path):
+    """`[M] 2026-09-02` first-run gate, by execution. A rich `Table` parses cell content as
+    MARKUP, and `scan`'s cells are paths discovered in someone else's repo. A folder named
+    `src [experimental]` rendered as `src ` -- `scan` naming a file that does not exist, on
+    one of the first commands a stranger runs. Any Next.js repo, whose route folders are
+    literally `[slug]`, gets every such row corrupted."""
+    src = tmp_path / "src [experimental]"
+    src.mkdir()
+    (src / "app.py").write_text(
+        'client.chat.completions.create(model="gpt-4o-mini", messages=[])', encoding="utf-8"
+    )
+    with cli.console.capture() as cap:
+        runner_result = CliRunner().invoke(cli.app, ["scan", str(tmp_path)])
+    out = cap.get() + runner_result.output
+    assert "gpt-4o-mini" in out, out
+    assert "src [experimental]" in out, "scan reported a path that does not exist: " + out
+
+
+def test_init_does_not_misreport_the_directory_the_user_named(tmp_path):
+    """`[M] 2026-09-02` first-run gate. `init --demo "target [wip] dir"` reported writing to
+    `target  dir` -- the tool misdescribing files it had just created, using the argument the
+    user typed. Silent: no exception, no warning."""
+    target = tmp_path / "target [wip] dir"
+    with cli.console.capture() as cap:
+        CliRunner().invoke(cli.app, ["init", "--demo", str(target)])
+    out = cap.get()
+    assert "target [wip] dir" in out, "init misreported the path it was given: " + out
+    assert (target / "modelpin-demo" / "modelpin.yaml").exists(), "demo not actually written"
