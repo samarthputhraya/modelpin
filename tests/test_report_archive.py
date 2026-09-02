@@ -109,11 +109,21 @@ def test_the_archive_is_byte_identical_to_the_stable_path(tmp_path):
 
 
 def test_both_paths_are_printed(tmp_path):
-    """An artifact the user cannot find is not an artifact."""
+    """An artifact the user cannot find is not an artifact.
+
+    `[M] 2026-09-02` Compared with ALL whitespace stripped, because the raw substring form of
+    this test passed on Windows and FAILED on both Linux CI jobs -- blocking two PRs. Rich
+    wraps at the console width and will break a path mid-token; whether `last-report.md`
+    survives intact depends only on how long the temp directory happens to be, so the
+    assertion was measuring the terminal rather than the product. CI's
+    `/tmp/pytest-of-runner/...` broke it as `last-repor` + `t.md`; the local
+    `C:/Users/.../Temp/...` happened to break one character earlier and passed.
+    """
     store = _baseline(tmp_path)
     r = _check(store)
-    assert "last-report.md" in r.output
-    assert cli.REPORT_ARCHIVE_DIRNAME in r.output
+    printed = "".join(r.output.split())
+    assert "last-report.md" in printed, r.output
+    assert cli.REPORT_ARCHIVE_DIRNAME in printed, r.output
 
 
 def test_a_failed_archive_write_never_costs_the_stable_report(tmp_path, monkeypatch):
