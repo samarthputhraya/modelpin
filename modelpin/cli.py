@@ -118,7 +118,29 @@ judge_model: gpt-4o-mini   # semantic LLM-judge (optional; extra calls). Remove 
 
 
 def _fail(message: str) -> NoReturn:
-    console.print(f"[red]error:[/] {message}")
+    """Print an error and exit 1. The message is ESCAPED: it is text, never markup.
+
+    MP-161 + MP-170. `[M] 2026-09-02` Unescaped, rich parsed any bracketed run in an error
+    message as a style tag, with two distinct failure modes:
+
+        in : pip install 'modelpin[providers]'   ->  out: pip install 'modelpin'
+        in : scenario [bold]alpha[/] failed      ->  out: scenario alpha failed
+
+    The first is the worst message in the product to corrupt: it is what a stranger whose
+    install lacks the SDK is told to run, so they are handed the command they just ran. The
+    second is worse in kind -- no exception, no signal, a plausible message naming something
+    that does not exist. Scenario ids have no pattern validator and provider messages are
+    remote text, so neither input is ours to trust.
+
+    `[M]` This class was found FIVE times at individual call sites, and four separate
+    comments claimed the last one was closed. `_fail_no_scenarios` even escaped its own
+    argument and explained why -- the symptom patched one function away from the cause. The
+    escape belongs HERE; that local workaround is removed in the same commit, because
+    keeping both would double-escape and print a literal backslash at the one careful site.
+
+    `[M]` Checked across all 30 `_fail` call sites: none passes intentional markup.
+    """
+    console.print(f"[red]error:[/] {_rich_escape(message)}")
     raise typer.Exit(code=1)
 
 
@@ -334,11 +356,11 @@ def _scenarios_remedy(resolved: Path, source: str, config_path: str) -> str:
 
 def _fail_no_scenarios(raw: str, source: str, config_path: str) -> NoReturn:
     resolved = Path(raw).resolve()
-    # _rich_escape: _fail() prints through Rich markup, so a path containing '[' would
-    # otherwise be swallowed as a style tag and corrupt the very message meant to unstick
-    # the user.
+    # No local escape: `_fail` escapes its whole message now (MP-161/MP-170). Escaping here
+    # too would print a literal backslash before the bracket -- making the one call site
+    # that had been careful the only one that looks broken.
     _fail(
-        f"no scenarios found in {_rich_escape(str(resolved))} ({_SOURCE_LABEL[source]}) -\n"
+        f"no scenarios found in {resolved} ({_SOURCE_LABEL[source]}) -\n"
         f"       {_dir_state(Path(raw))}.\n"
         f"       {_scenarios_remedy(resolved, source, config_path)}"
     )
@@ -1258,10 +1280,16 @@ def report(
         json_path.write_text(
             json.dumps(to_report_sidecar(results, meta), indent=2), encoding="utf-8"
         )
-        console.print(f"\n[green]Modelpin Report written[/] -> {md_path}")
-        console.print(f"[dim]raw results (JSON) -> {json_path}[/]")
+        # MP-161 sweep: `--output-dir` is user-supplied and an OSError carries a path, so
+        # both are TEXT, not markup. A directory called `[wip]` otherwise vanishes from the
+        # one line telling the user where their Report went.
+        console.print(f"\n[green]Modelpin Report written[/] -> {_rich_escape(str(md_path))}")
+        console.print(f"[dim]raw results (JSON) -> {_rich_escape(str(json_path))}[/]")
     except OSError as exc:
-        console.print(f"[yellow]warning:[/] could not write report to {out}: {exc}")
+        console.print(
+            f"[yellow]warning:[/] could not write report to "
+            f"{_rich_escape(str(out))}: {_rich_escape(str(exc))}"
+        )
 
     if skipped:
         console.print(
