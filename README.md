@@ -73,10 +73,13 @@ dated copy under `.modelpin/runs/` that the next run will not overwrite, for cit
 | `invoice_parse` | `changed_minor` | `"Total: $5"` → `"Total: 5"` breaks the scenario's assertion, but nothing refused and no tool moved |
 
 `modelpin check` exits **1** only on a real `regression` — that's the CI gate, and it is why
-the demo exits 1. It also exits **3** when a scenario it compared could not be measured, or when
-nothing was compared at all — a different claim from "it broke". A scenario with no recorded
-baseline is named in the report and costs the run its clearance, but does not fail the build. Then edit `traces.json`, re-run, and watch the verdict move:
-the answer is computed from the traces, not baked in.
+the demo exits 1. It also exits **3** when a scenario it compared could not be measured, when the
+provider rejected one, or when nothing could be compared at all — a different claim from "it
+broke". A scenario with no recorded baseline is named in the report and costs the run its
+clearance, but does not by itself fail the build.
+
+Then edit `traces.json`, re-run, and watch the verdict move: the answer is computed from the
+traces, not baked in.
 
 None of this is bundled inside the installed package — the wheel is code only, and the demo is
 generated on your machine. That is deliberate: shipping them would mean the quickstart depends
