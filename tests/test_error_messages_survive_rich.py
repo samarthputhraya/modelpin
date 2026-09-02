@@ -144,8 +144,15 @@ def test_scan_reports_a_file_path_that_actually_exists(tmp_path):
     with cli.console.capture() as cap:
         runner_result = CliRunner().invoke(cli.app, ["scan", str(tmp_path)])
     out = cap.get() + runner_result.output
-    assert "gpt-4o-mini" in out, out
-    assert "src [experimental]" in out, "scan reported a path that does not exist: " + out
+    # `_unwrapped` on BOTH sides. `[M] 2026-09-02` The first cut of these two tests compared
+    # raw substrings and passed on Windows, then failed on Linux CI, where the longer
+    # `/tmp/pytest-of-runner/...` prefix pushed the wrap INSIDE the path -- the identical
+    # mistake this module already carries `_unwrapped` to prevent, made in the same file that
+    # defines it. The product was correct both times.
+    assert _unwrapped("gpt-4o-mini") in _unwrapped(out), out
+    assert _unwrapped("src [experimental]") in _unwrapped(out), (
+        "scan reported a path that does not exist: " + out
+    )
 
 
 def test_init_does_not_misreport_the_directory_the_user_named(tmp_path):
@@ -156,5 +163,7 @@ def test_init_does_not_misreport_the_directory_the_user_named(tmp_path):
     with cli.console.capture() as cap:
         CliRunner().invoke(cli.app, ["init", "--demo", str(target)])
     out = cap.get()
-    assert "target [wip] dir" in out, "init misreported the path it was given: " + out
+    assert _unwrapped("target [wip] dir") in _unwrapped(out), (
+        "init misreported the path it was given: " + out
+    )
     assert (target / "modelpin-demo" / "modelpin.yaml").exists(), "demo not actually written"
