@@ -587,8 +587,9 @@ def test_the_self_check_block_survives_being_pasted_into_a_repl():
     line before `walk(cache)` is the whole fix; this test is what keeps it there."""
     doc = _doc()
     code = next(
-        c for c in re.findall(r"```python\n(.*?)```", doc, re.S) if "drift_cache-suite" in c
-        or "drift_cache_drift-suite.json" in c
+        c
+        for c in re.findall(r"```python\n(.*?)```", doc, re.S)
+        if "drift_cache-suite" in c or "drift_cache_drift-suite.json" in c
     )
     proc = subprocess.run(
         [sys.executable, "-i"],
